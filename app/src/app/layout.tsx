@@ -114,6 +114,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <p className="railkop">Alles</p>
               <div className="railgroep">
                 <a className="railitem" href="/leads">Leads</a>
+                <a className="railitem" href="/contactpogingen">Contactpogingen</a>
                 <a className="railitem" href="/zoektermen">Waar je voor betaalt</a>
               </div>
             </div>
