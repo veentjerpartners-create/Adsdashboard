@@ -130,7 +130,11 @@
           src: param('utm_source'), med: param('utm_medium'),
           cmp: param('utm_campaign'), term: param('utm_term'),
           cnt: param('utm_content'),
-          cid: param('mi_cid'), agid: param('mi_agid')
+          // mi_cid/mi_agid zetten we zelf via de URL-suffix; gad_campaignid
+          // plakt Google er uit zichzelf aan. Allebei meenemen: een ID blijft
+          // kloppen als je een campagne hernoemt, een slug niet.
+          cid: param('mi_cid') || param('gad_campaignid'),
+          agid: param('mi_agid')
         };
         ls(CLICK_KEY, JSON.stringify(vers));
         return vers;
@@ -144,7 +148,8 @@
         src: param('utm_source'), med: param('utm_medium'),
         cmp: param('utm_campaign'), term: param('utm_term'),
         cnt: param('utm_content'),
-        cid: param('mi_cid'), agid: param('mi_agid')
+        cid: param('mi_cid') || param('gad_campaignid'),
+        agid: param('mi_agid')
       };
     }
     try {
@@ -224,6 +229,9 @@
     var p = {
       k: KEY, vid: VID, sid: SID, uid: uuid(),
       t: type, ts: Date.now(),
+      // Volledige URL inclusief parameters: de landingspagina met zijn
+      // utm-waarden is informatie. Het kale pad wordt er in de database uit
+      // gehaald, zodat de tijdlijn leesbaar blijft.
       url: location.href.split('#')[0],
       ttl: (document.title || '').slice(0, 200),
       ref: document.referrer || '',
