@@ -1,0 +1,22 @@
+# Supabase
+supabase>=2.0.0
+python-dotenv>=1.0.0
+
+# Google Ads
+google-ads>=25.0.0
+PyYAML>=6.0
+
+# GA4 Data API
+google-analytics-data>=0.18.0
+
+# Scheduler
+APScheduler>=3.10.0
+
+# Mailparser (Microsoft Graph)
+msgraph-sdk>=1.0.0
+azure-identity>=1.15.0
+msal>=1.28.0
+
+# Overig
+requests>=2.31.0
+tenacity>=8.2.0

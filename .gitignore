@@ -1,0 +1,27 @@
+# Secrets — NOOIT committen
+.env
+.env.local
+.env.*.local
+secrets/
+google-ads.yaml
+*.pem
+tl_tokens.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+.vercel/
+
+# Lokale rommel
+.DS_Store
+Thumbs.db
+*.log
+scratch/
