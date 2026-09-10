@@ -6,6 +6,7 @@ Startpunt voor alle sync-taken.
     python -m ingest.run structure                0.7  campagnes/adgroepen/zoekwoorden
     python -m ingest.run metrics                  0.8  laatste 14 dagen
     python -m ingest.run metrics --backfill 24    historie, 24 maanden terug
+    python -m ingest.run terms                    zoektermen: wat mensen intypten
     python -m ingest.run clicks                   0.10 gclid -> campagne (heeft haast)
     python -m ingest.run clicks --report          hoe ver de klik-historie is
     python -m ingest.run spend --days 30          0.9  controle tegen Google Ads
@@ -112,6 +113,17 @@ def cmd_metrics(days: int, backfill_months: int | None) -> int:
     return 0
 
 
+def cmd_terms(days: int) -> int:
+    from .connectors.google_ads import zoektermen as z
+    result = z.sync_recent(days=days)
+    print()
+    print(f"Zoektermen laatste {days} dagen")
+    for label, n in result.items():
+        print(f"  {label:<32} {n} termen")
+    print()
+    return 0
+
+
 def cmd_clicks(report_only: bool) -> int:
     from .connectors.google_ads import clicks as c
 
@@ -136,11 +148,12 @@ def cmd_spend(days: int) -> int:
     Leest v_campaign_daily, niet ads_metrics_daily: die view filtert het
     zoekwoordgrein eruit, zodat de spend niet dubbel geteld wordt.
     """
-    from datetime import date, timedelta
     from .core.db import fetch_all, tbl
+    from .core.kalender import venster
 
-    end = date.today() - timedelta(days=1)
-    start = end - timedelta(days=days - 1)
+    # Zelfde venster als de sync, inclusief vandaag en in de tijdzone van de
+    # accounts -- anders vergelijk je twee verschillende periodes.
+    start, end = venster(days)
 
     accounts = {a["id"]: a for a in fetch_all("ads_account", "id,customer_id,descriptive_name")}
     campaigns = {
@@ -205,12 +218,19 @@ def cmd_nightly() -> int:
     """Wat de scheduler straks elke nacht doet. Nu handmatig aan te roepen."""
     from .connectors.google_ads import clicks as c
     from .connectors.google_ads import metrics as m
+    from .connectors.google_ads import zoektermen as z
     from .connectors.google_ads.accounts import sync_accounts
     from .connectors.google_ads.structure import sync_all
 
     sync_accounts()
     _print_counts("Structuur", sync_all())
     _print_counts("Metrics (rolling 14 dagen)", m.sync_recent())
+
+    termen = z.sync_recent()
+    print()
+    print("Zoektermen")
+    for label, n in termen.items():
+        print(f"  {label:<32} {n}")
 
     # Als laatste, en apart: dit is de enige taak met een deadline. Faalt hij,
     # dan moet dat opvallen in plaats van wegvallen tussen de rest.
@@ -249,6 +269,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sp = sub.add_parser("spend", help="controle: spend per campagne uit onze database")
     p_sp.add_argument("--days", type=int, default=30)
 
+    p_tm = sub.add_parser("terms", help="zoektermen ophalen")
+    p_tm.add_argument("--days", type=int, default=14)
+
     p_cl = sub.add_parser("clicks", help="gclid -> campagne; heeft een 90-dagendeadline")
     p_cl.add_argument("--report", action="store_true",
                       help="niets ophalen, alleen tonen hoe ver we zijn")
@@ -266,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_structure()
     if args.cmd == "metrics":
         return cmd_metrics(args.days, args.backfill)
+    if args.cmd == "terms":
+        return cmd_terms(args.days)
     if args.cmd == "clicks":
         return cmd_clicks(args.report)
     if args.cmd == "spend":

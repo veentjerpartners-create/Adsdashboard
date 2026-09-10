@@ -68,11 +68,20 @@ export function db() {
   });
 }
 
-/** Datumbereik uit de URL, met een bruikbare standaard. */
+/**
+ * Datumbereik uit de URL.
+ *
+ * Tot en met vandaag, in de tijdzone van de klant. De Google Ads-interface
+ * toont vandaag ook; slaan wij hem over, dan wijkt dit dashboard elke dag
+ * zichtbaar af van wat jij bij Google ziet. En de dag wordt bepaald in
+ * Amsterdam, niet op de server: die stond bij het bouwen op UTC-5, een hele
+ * dag verschil.
+ */
 export function periode(sp: Record<string, string | string[] | undefined>) {
   const dagen = Number(Array.isArray(sp.d) ? sp.d[0] : sp.d) || 30;
-  const eind = new Date();
-  eind.setUTCDate(eind.getUTCDate() - 1);          // gisteren: vandaag is niet af
+  const nu = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }));
+  const eind = new Date(Date.UTC(nu.getFullYear(), nu.getMonth(), nu.getDate()));
   const start = new Date(eind);
   start.setUTCDate(start.getUTCDate() - (dagen - 1));
   return {

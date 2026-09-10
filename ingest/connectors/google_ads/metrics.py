@@ -20,6 +20,7 @@ import logging
 from datetime import date, timedelta
 
 from ...core.db import fetch_all, upsert
+from ...core.kalender import vandaag, venster
 from ...core.sync import sync_run
 from .client import describe_error, search
 
@@ -118,18 +119,21 @@ def sync_metrics(
 
 def _client_accounts() -> list[dict]:
     return [
-        a for a in fetch_all("ads_account", "id,customer_id,descriptive_name,is_manager")
+        a for a in fetch_all(
+            "ads_account", "id,customer_id,descriptive_name,is_manager,time_zone")
         if not a["is_manager"]
     ]
 
 
 def sync_recent(days: int = ROLLING_DAYS) -> dict[str, dict[str, int]]:
-    """Het nachtelijke werk: de laatste `days` dagen opnieuw ophalen."""
-    end = date.today() - timedelta(days=1)   # gisteren; vandaag is nog niet af
-    start = end - timedelta(days=days - 1)
+    """
+    Het nachtelijke werk: de laatste `days` dagen opnieuw ophalen, tot en met
+    vandaag, in de tijdzone van elk account afzonderlijk.
+    """
     out: dict[str, dict[str, int]] = {}
     for a in _client_accounts():
         label = a.get("descriptive_name") or a["customer_id"]
+        start, end = venster(days, a.get("time_zone"))
         try:
             out[label] = sync_metrics(a["customer_id"], a["id"], start=start, end=end)
         except Exception as exc:  # noqa: BLE001
@@ -146,12 +150,12 @@ def backfill(months: int = 24, chunk_days: int = 30) -> dict[str, dict[str, int]
     Blokken van 30 dagen omdat één query over twee jaar zoekwoorddata te groot
     wordt en bij een fout alles kwijt is.
     """
-    end = date.today() - timedelta(days=1)
-    oldest = end - timedelta(days=int(months * 30.44))
     out: dict[str, dict[str, int]] = {}
 
     for a in _client_accounts():
         label = a.get("descriptive_name") or a["customer_id"]
+        end = vandaag(a.get("time_zone"))
+        oldest = end - timedelta(days=int(months * 30.44))
         totals = {"campagne-dagen": 0, "zoekwoord-dagen": 0}
         # Een account dat vorige maand gepauzeerd is heeft recente lege blokken
         # maar wel historie daarvoor. Pas na drie lege blokken op rij (~90 dagen)

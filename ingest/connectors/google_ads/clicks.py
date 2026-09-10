@@ -27,6 +27,7 @@ import logging
 from datetime import date, timedelta
 
 from ...core.db import fetch_all, upsert
+from ...core.kalender import gisteren as gisteren_in
 from ...core.sync import cursor_for, sync_run
 from .client import describe_error, search
 
@@ -128,7 +129,8 @@ def _eerste_zinnige_dag(account_uuid: str, grens: date) -> date:
 
 def _client_accounts() -> list[dict]:
     return [
-        a for a in fetch_all("ads_account", "id,customer_id,descriptive_name,is_manager")
+        a for a in fetch_all(
+            "ads_account", "id,customer_id,descriptive_name,is_manager,time_zone")
         if not a["is_manager"]
     ]
 
@@ -142,12 +144,15 @@ def sync_gap(max_days: int = MAX_TERUG) -> dict[str, int]:
     die week vanzelf in. Nooit verder terug dan 90 dagen, want daar heeft Google
     de data niet meer.
     """
-    gisteren = date.today() - timedelta(days=1)
-    grens = gisteren - timedelta(days=max_days - 1)
     out: dict[str, int] = {}
 
     for a in _client_accounts():
         label = a.get("descriptive_name") or a["customer_id"]
+        # Vandaag slaan we hier wel over: click_view van een lopende dag is
+        # onvolledig, en anders zou de cursor doorschuiven en de rest van de
+        # dag nooit meer opgehaald worden.
+        gisteren = gisteren_in(a.get("time_zone"))
+        grens = gisteren - timedelta(days=max_days - 1)
         laatste = cursor_for(CONNECTOR, a["customer_id"])
         if laatste:
             vanaf = max(grens, laatste + timedelta(days=1))
@@ -194,11 +199,12 @@ def report() -> str:
     for a in _client_accounts():
         label = a.get("descriptive_name") or a["customer_id"]
         laatste = cursor_for(CONNECTOR, a["customer_id"])
+        gisteren = gisteren_in(a.get("time_zone"))
         n = (
             tbl("ads_click").select("click_id", count="exact")
             .eq("ads_account_id", a["id"]).limit(1).execute().count
         )
-        achterstand = (date.today() - timedelta(days=1) - laatste).days if laatste else None
+        achterstand = (gisteren - laatste).days if laatste else None
         stand = f"bij t/m {laatste}" if laatste else "nooit gelopen"
         alarm = ""
         if achterstand and achterstand > 0:
