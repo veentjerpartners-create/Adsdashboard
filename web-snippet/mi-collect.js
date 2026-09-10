@@ -182,6 +182,26 @@
   var VID = visitorId();
   var SID = sessionId(nieuweKlik);
 
+  /* ---------- ontdubbelen ----------
+   * Twee keer hetzelfde event vanaf dezelfde plek binnen twee seconden telt
+   * één keer. Dat vangt een snelle verversing, een dubbel afgevuurde
+   * touch/click op mobiel, en een preview-bot die de pagina twee keer laadt.
+   * Zonder deze rem lopen de paginacijfers stil op, en dan gaan mensen de
+   * cijfers wantrouwen -- terecht.
+   *
+   * De sleutel bevat het pad en de belangrijkste metadata, zodat twee
+   * verschillende knoppen op dezelfde pagina wél allebei tellen.
+   */
+  var laatst = {};
+  function tweeKeer(type, meta) {
+    var sleutel = type + '|' + location.pathname + '|' +
+      ((meta && (meta.cta_location || meta.form_id || meta.service)) || '');
+    var nu = Date.now();
+    if (laatst[sleutel] && nu - laatst[sleutel] < 2000) return true;
+    laatst[sleutel] = nu;
+    return false;
+  }
+
   /* ---------- versturen ---------- */
   function stuur(payload) {
     if (KEY.indexOf('VUL-') === 0) return;   // nog niet ingesteld: niets doen
@@ -251,6 +271,7 @@
         naam = HERNOEM[naam];
         if (!naam) return;
       }
+      if (tweeKeer(naam, meta)) return;
       stuur(basis(naam, meta));
     },
 
@@ -278,12 +299,23 @@
   window.MI = MI;
 
   /* Sessiestart en paginaweergave meteen, zodat de tijdlijn compleet is en niet
-   * pas begint bij de eerste klik. */
-  if (!ss('mi_sessie_gemeld')) {
-    ss('mi_sessie_gemeld', '1');
-    MI.event('session_start');
+   * pas begint bij de eerste klik.
+   *
+   * Behalve tijdens prerendering: Chrome laadt een pagina soms alvast terwijl
+   * de bezoeker nog in de adresbalk typt. Die telt pas als hij hem echt te
+   * zien krijgt. */
+  function openen() {
+    if (!ss('mi_sessie_gemeld')) {
+      ss('mi_sessie_gemeld', '1');
+      MI.event('session_start');
+    }
+    MI.event('page_view', { page_type: (window.rbbCtx && window.rbbCtx.page_type) || '' });
   }
-  MI.event('page_view', { page_type: (window.rbbCtx && window.rbbCtx.page_type) || '' });
+  if (document.prerendering) {
+    document.addEventListener('prerenderingchange', openen, { once: true });
+  } else {
+    openen();
+  }
 
   /* Scrolldiepte: goedkoop signaal voor betrokkenheid, en het maakt het verschil
    * zichtbaar tussen "even gekeken" en "helemaal gelezen". */
