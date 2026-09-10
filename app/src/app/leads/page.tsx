@@ -1,4 +1,5 @@
-import { db } from '@/lib/db';
+import { config, db } from '@/lib/db';
+import { Setup } from '@/components/Setup';
 import { tijdstip } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,13 @@ const STATUSSEN = [
 export default async function Leads({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const status = (Array.isArray(sp.status) ? sp.status[0] : sp.status) || '';
+
+  // Eerst kijken of we uberhaupt kunnen verbinden. Zonder deze controle geeft
+  // een ontbrekende variabele een foutscherm met een digest-nummer, en dan
+  // moet je in de logs gaan graven voor iets wat je gewoon kunt lezen.
+  const cfg = config();
+  if (cfg.ontbreekt.length) return <Setup config={cfg} />;
+
   const s = db();
 
   let q = s.from('lead')

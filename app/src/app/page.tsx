@@ -1,4 +1,5 @@
-import { db, periode } from '@/lib/db';
+import { config, db, periode } from '@/lib/db';
+import { Setup } from '@/components/Setup';
 import { deel, eur, getal } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,13 @@ export default async function Overzicht({
 }) {
   const sp = await searchParams;
   const { dagen, start, eind } = periode(sp);
+
+  // Eerst kijken of we uberhaupt kunnen verbinden. Zonder deze controle geeft
+  // een ontbrekende variabele een foutscherm met een digest-nummer, en dan moet
+  // je in de logs gaan graven voor iets wat je gewoon kunt lezen.
+  const cfg = config();
+  if (cfg.ontbreekt.length) return <Setup config={cfg} />;
+
   const s = db();
 
   // v_campaign_daily in plaats van ads_metrics_daily: die view filtert het

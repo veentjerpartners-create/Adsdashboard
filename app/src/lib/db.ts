@@ -11,19 +11,59 @@
  */
 import { createClient } from '@supabase/supabase-js';
 
-const URL = process.env.MI_SUPABASE_URL;
-const KEY = process.env.MI_SUPABASE_KEY;
-const SCHEMA = process.env.MI_DB_SCHEMA || 'mi';
+/**
+ * Twee namen per variabele.
+ *
+ * De MI_-namen horen bij dit dashboard. De kale namen staan in de
+ * .env.example van de Python-sync, en Vercel neemt die automatisch over bij
+ * het importeren van de repo -- dan is het onnodig dat het dashboard er niet
+ * mee overweg kan.
+ */
+function env(...namen: string[]): string | undefined {
+  for (const n of namen) {
+    const v = process.env[n];
+    if (v) return v;
+  }
+  return undefined;
+}
+
+export type Config = {
+  url?: string;
+  key?: string;
+  schema: string;
+  ontbreekt: { naam: string; uitleg: string }[];
+};
+
+export function config(): Config {
+  const url = env('MI_SUPABASE_URL', 'SUPABASE_URL');
+  const key = env('MI_SUPABASE_KEY', 'SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY');
+  const schema = env('MI_DB_SCHEMA', 'SUPABASE_DB_SCHEMA') || 'mi';
+
+  const ontbreekt: Config['ontbreekt'] = [];
+  if (!url) {
+    ontbreekt.push({
+      naam: 'MI_SUPABASE_URL',
+      uitleg: 'De project-URL, iets als https://xxxx.supabase.co — Supabase → Settings → Data API',
+    });
+  }
+  if (!key) {
+    ontbreekt.push({
+      naam: 'MI_SUPABASE_KEY',
+      uitleg: 'De secret key — Supabase → Settings → API Keys. Nooit de publishable key.',
+    });
+  }
+  return { url, key, schema, ontbreekt };
+}
 
 export function db() {
-  if (!URL || !KEY) {
-    throw new Error(
-      'MI_SUPABASE_URL en MI_SUPABASE_KEY ontbreken. Zet ze in .env.local ' +
-      '(lokaal) of bij Environment Variables (Vercel).'
-    );
+  const c = config();
+  if (!c.url || !c.key) {
+    // Zou niet mogen gebeuren: elke pagina controleert config() eerst en toont
+    // dan een uitleg in plaats van een foutscherm.
+    throw new Error(`Ontbrekende configuratie: ${c.ontbreekt.map((o) => o.naam).join(', ')}`);
   }
-  return createClient(URL, KEY, {
-    db: { schema: SCHEMA },
+  return createClient(c.url, c.key, {
+    db: { schema: c.schema },
     auth: { persistSession: false },
   });
 }

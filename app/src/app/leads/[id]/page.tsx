@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { db } from '@/lib/db';
+import { config, db } from '@/lib/db';
+import { Setup } from '@/components/Setup';
 import { datum, klok, tijdstip } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,10 @@ export default async function LeadDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  const cfg = config();
+  if (cfg.ontbreekt.length) return <Setup config={cfg} />;
+
   const s = db();
 
   const { data: lead } = await s.from('lead').select('*').eq('id', id).maybeSingle();
