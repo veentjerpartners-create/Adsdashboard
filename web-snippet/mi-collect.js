@@ -38,7 +38,7 @@
   var KEY = 'VUL-COLLECTOR-KEY-IN';   // uit mi.website.collector_key
   /* ============================= */
 
-  var ENDPOINT = '/api/collect';
+  var ENDPOINT = '/api/collect';   // api/collect.mjs op Vercel
   var VID_KEY = 'mi_vid';
   var SID_KEY = 'mi_sid';
   var SID_TS = 'mi_sid_ts';

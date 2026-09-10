@@ -4,6 +4,11 @@
  * Dit bestand komt in de repo van elke klantwebsite, in een map `api/` naast
  * de site. Vercel maakt daar vanzelf een serverless function van.
  *
+ * De extensie is .mjs, niet .js: deze repo is een statische site zonder
+ * package.json, en dan behandelt Vercel een .js in api/ als CommonJS. Dan is
+ * `export default` een syntaxfout en start de function niet. Met .mjs staat
+ * ES-modules vast, zonder dat er een package.json bij hoeft.
+ *
  * WAAROM OP HET KLANTDOMEIN EN NIET CENTRAAL
  *  - De bestaande CSP staat `connect-src 'self'` al toe, dus er hoeft niets
  *    aan de beveiligingsheaders te veranderen. Nagekeken in vercel.json van
