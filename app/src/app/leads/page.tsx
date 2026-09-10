@@ -84,6 +84,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
               volledige tijdlijn van wat hij daarvoor deed.
             </p>
           ) : (
+            <>
             <p>
               Op boersbreuer.nl staat <code>api/collect.mjs</code> al, maar de
               vier omgevingsvariabelen in Vercel nog niet. Tot die er zijn komt
@@ -96,6 +97,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
               van drie dagen eerder. Naam, telefoon en de advertentieklik staan
               in de mail en zijn achteraf nog te redden.
             </p>
+            </>
           )}
         </div>
       ) : (
