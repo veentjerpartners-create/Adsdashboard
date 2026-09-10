@@ -79,6 +79,62 @@ export default async function Overzicht({
   const actieveCampagnes = (campagnes.data ?? []).filter((c) => c.status === 'ENABLED');
   const cpl = deel(alles.kosten, alles.leads);
 
+  /**
+   * De campagnetabel.
+   *
+   * Niet simpelweg "alle campagnes die niet REMOVED zijn": een verwijderde
+   * campagne heeft in het verleden geld gekost, en als je die weglaat telt de
+   * kolom niet meer op tot het totaal erboven. Dat gebeurt in de praktijk zodra
+   * je een account opnieuw opbouwt -- de oude campagnes verdwijnen, hun spend
+   * niet.
+   *
+   * Dus: alles wat nu bestaat, plus alles wat in deze periode geld heeft
+   * uitgegeven. Gesorteerd op kosten, want daar kijk je naar.
+   */
+  type CampRij = {
+    sleutel: string; naam: string; status: string; verwijderd: boolean;
+    impr: number; clicks: number; kosten: number; conv: number; cpc: number | null;
+  };
+
+  const campInfo = new Map(
+    (campagnes.data ?? []).map((c) => [`${c.ads_account_id}-${c.campaign_id}`, c]));
+
+  const perCampagne = new Map<string, CampRij>();
+  const zorgVoor = (sleutel: string, accountId: string, campaignId: number): CampRij => {
+    let rij = perCampagne.get(sleutel);
+    if (!rij) {
+      const c = campInfo.get(sleutel);
+      const status = (c?.status as string) ?? 'ONBEKEND';
+      rij = {
+        sleutel,
+        naam: (c?.name as string) ?? `campagne ${campaignId}`,
+        status,
+        verwijderd: status === 'REMOVED' || !c,
+        impr: 0, clicks: 0, kosten: 0, conv: 0, cpc: null,
+      };
+      perCampagne.set(sleutel, rij);
+    }
+    return rij;
+  };
+
+  for (const m of campMetrics.data ?? []) {
+    const sleutel = `${m.ads_account_id}-${m.campaign_id}`;
+    const rij = zorgVoor(sleutel, m.ads_account_id as string, m.campaign_id as number);
+    rij.impr += m.impressions ?? 0;
+    rij.clicks += m.clicks ?? 0;
+    rij.kosten += Number(m.cost ?? 0);
+    rij.conv += Number(m.conversions ?? 0);
+  }
+  for (const c of campagnes.data ?? []) {
+    if (c.status === 'REMOVED') continue;   // alleen als hij nog bestaat
+    zorgVoor(`${c.ads_account_id}-${c.campaign_id}`,
+             c.ads_account_id as string, c.campaign_id as number);
+  }
+
+  const campagneRijen = [...perCampagne.values()]
+    .map((r) => ({ ...r, cpc: deel(r.kosten, r.clicks) }))
+    .sort((a, b) => b.kosten - a.kosten || b.impr - a.impr || a.naam.localeCompare(b.naam));
+
   const bereiken = [7, 30, 90];
 
   return (
@@ -196,29 +252,26 @@ export default async function Overzicht({
             </tr>
           </thead>
           <tbody>
-            {(campagnes.data ?? [])
-              .filter((c) => c.status !== 'REMOVED')
-              .map((c) => {
-                const rijen = (campMetrics.data ?? []).filter(
-                  (m) => m.ads_account_id === c.ads_account_id &&
-                         m.campaign_id === c.campaign_id);
-                const impr = rijen.reduce((a, r) => a + (r.impressions ?? 0), 0);
-                const clicks = rijen.reduce((a, r) => a + (r.clicks ?? 0), 0);
-                const kosten = rijen.reduce((a, r) => a + Number(r.cost ?? 0), 0);
-                const conv = rijen.reduce((a, r) => a + Number(r.conversions ?? 0), 0);
-                const cpc = deel(kosten, clicks);
-                return (
-                  <tr key={`${c.ads_account_id}-${c.campaign_id}`}>
-                    <td>{c.name as string}</td>
-                    <td><span className={`badge ${String(c.status).toLowerCase()}`}>{c.status as string}</span></td>
-                    <td className="n">{getal(impr)}</td>
-                    <td className="n">{getal(clicks)}</td>
-                    <td className="n">{eur(kosten)}</td>
-                    <td className="n">{cpc == null ? '—' : eur(cpc)}</td>
-                    <td className="n">{conv ? conv.toFixed(1) : '—'}</td>
-                  </tr>
-                );
-              })}
+            {campagneRijen.map((r) => (
+              <tr key={r.sleutel}>
+                <td>
+                  {r.naam}
+                  {r.verwijderd && (
+                    <div className="zacht" style={{ fontSize: 11.5 }}>
+                      {r.kosten > 0
+                        ? 'verwijderd, maar heeft in deze periode geld gekost'
+                        : 'verwijderd, wel activiteit in deze periode'}
+                    </div>
+                  )}
+                </td>
+                <td><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span></td>
+                <td className="n">{getal(r.impr)}</td>
+                <td className="n">{getal(r.clicks)}</td>
+                <td className="n">{eur(r.kosten)}</td>
+                <td className="n">{r.cpc == null ? '—' : eur(r.cpc)}</td>
+                <td className="n">{r.conv ? r.conv.toFixed(1) : '—'}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
