@@ -34,15 +34,26 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
   if (gekozen) q = q.eq('status', gekozen);
   if (sc.actief) q = q.eq('client_id', sc.actief.id);
 
-  const [leads, sites] = await Promise.all([
+  // Of de collector draait leiden we af uit de data, niet uit een vinkje dat
+  // iemand met de hand moet zetten -- zo'n vinkje veroudert gegarandeerd, en
+  // dat gebeurde ook: het stond nog op "niet live" terwijl er al events
+  // binnenkwamen.
+  let eq = s.from('lead_event').select('id', { count: 'exact', head: true });
+  if (sc.actief) eq = eq.eq('client_id', sc.actief.id);
+
+  const [leads, sites, events] = await Promise.all([
     q,
     s.from('website').select('id,domain,collector_live_since'),
+    eq,
   ]);
 
   const klantNaam = new Map(sc.klanten.map((k) => [k.id, k.name]));
   const siteNaam = new Map((sites.data ?? []).map((w) => [w.id, w.domain as string]));
   const rijen = leads.data ?? [];
-  const live = (sites.data ?? []).some((w) => w.collector_live_since);
+  const gemeten = events.count ?? 0;
+  const gemeteneSites = (sites.data ?? [])
+    .filter((w) => w.collector_live_since)
+    .map((w) => w.domain as string);
 
   return (
     <>
@@ -73,31 +84,29 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
       {rijen.length === 0 ? (
         <div className="niets">
           <strong>
-            {gekozen ? 'Geen leads met deze status' : 'De collector staat nog niet live'}
+            {gekozen
+              ? 'Geen leads met deze status'
+              : gemeten > 0
+                ? 'Nog geen aanvraag'
+                : 'Nog geen bezoekers gemeten'}
           </strong>
           {gekozen ? (
             <p>Probeer een andere status, of bekijk alles.</p>
-          ) : live ? (
+          ) : gemeten > 0 ? (
             <p>
-              De collector draait, maar er is nog geen aanvraag binnengekomen.
-              Zodra iemand een formulier instuurt verschijnt hij hier, met de
-              volledige tijdlijn van wat hij daarvoor deed.
+              De collector draait en heeft {gemeten.toLocaleString('nl-NL')}{' '}
+              {gemeten === 1 ? 'gebeurtenis' : 'gebeurtenissen'} vastgelegd
+              {gemeteneSites.length > 0 && ` op ${gemeteneSites.join(' en ')}`}.
+              Er heeft alleen nog niemand een formulier ingestuurd. Zodra dat
+              gebeurt verschijnt de lead hier, met alles wat hij daarvoor deed.
             </p>
           ) : (
-            <>
             <p>
-              Op boersbreuer.nl staat <code>api/collect.mjs</code> al, maar de
-              vier omgevingsvariabelen in Vercel nog niet. Tot die er zijn komt
-              er hier niets binnen.
+              Er is nog geen enkele gebeurtenis binnengekomen. Dat kan kloppen
+              als er nog geen bezoekers waren; duurt het langer, controleer dan
+              of <code>MI_SUPABASE_KEY</code> en <code>MI_COLLECTOR_KEY</code>
+              {' '}in Vercel staan en of er daarna opnieuw gedeployd is.
             </p>
-            <p>
-              Aanvragen gaan intussen gewoon door naar Formspree, dus niemand
-              mist een lead. Wat je in die periode wel kwijtraakt is het gedrag
-              vóór het formulier: de pagina&apos;s, de WhatsApp-klik, de sessie
-              van drie dagen eerder. Naam, telefoon en de advertentieklik staan
-              in de mail en zijn achteraf nog te redden.
-            </p>
-            </>
           )}
         </div>
       ) : (
