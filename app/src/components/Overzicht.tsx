@@ -1,10 +1,9 @@
 /**
  * Het overzicht, gedeeld door "alle klanten" en "één klant".
  *
- * De opening is een zin, geen tegelraster. Dat is met opzet: het hele punt van
- * dit systeem is de vraag "wat leverde dat advertentiegeld op", en die vraag
- * beantwoord je in een zin, niet in tien losse getallen. De cijfers eronder
- * zijn de onderbouwing.
+ * Kale kop, dan meteen de cijfers. Er stond eerst een zin die het resultaat
+ * navertelde ("Er ging X naar Google, dat leverde Y leads op"); die is eruit
+ * omdat je aan de cijfers zelf genoeg hebt.
  */
 import { db } from '@/lib/db';
 import { deel, eur, getal } from '@/lib/format';
@@ -127,18 +126,7 @@ export async function Overzicht({
 
   return (
     <>
-      <h1 className="zin">
-        {scope.actief ? `${scope.actief.name} gaf ` : 'Er ging '}
-        <b>{eur(t.kosten)}</b>
-        {scope.actief ? ' uit bij Google in ' : ' naar Google in '}{dagen}{' dagen. '}
-        {rijenLeads.length > 0 ? (
-          <>Dat leverde <b>{rijenLeads.length}</b> {rijenLeads.length === 1 ? 'lead' : 'leads'} op.</>
-        ) : t.clicks > 0 ? (
-          <span className="stil">Er kwamen {t.clicks} klikken, nog geen leads.</span>
-        ) : (
-          <span className="stil">Er is nog geen verkeer.</span>
-        )}
-      </h1>
+      <h1 className="zin">{scope.actief ? scope.actief.name : 'Alle klanten'}</h1>
 
       <p className="periode">
         {start} tot {eind}

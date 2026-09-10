@@ -85,10 +85,16 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
             </p>
           ) : (
             <p>
-              Zet <code>api/collect.js</code> en de vier omgevingsvariabelen in
-              de site-repo en deploy. Vanaf dat moment krijgt elke aanvraag een
-              tijdlijn: de advertentieklik, de pagina&apos;s ervoor, de
-              WhatsApp-klik, het formulier.
+              Op boersbreuer.nl staat <code>api/collect.mjs</code> al, maar de
+              vier omgevingsvariabelen in Vercel nog niet. Tot die er zijn komt
+              er hier niets binnen.
+            </p>
+            <p>
+              Aanvragen gaan intussen gewoon door naar Formspree, dus niemand
+              mist een lead. Wat je in die periode wel kwijtraakt is het gedrag
+              vóór het formulier: de pagina&apos;s, de WhatsApp-klik, de sessie
+              van drie dagen eerder. Naam, telefoon en de advertentieklik staan
+              in de mail en zijn achteraf nog te redden.
             </p>
           )}
         </div>
