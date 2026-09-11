@@ -105,7 +105,8 @@ def sync_termen(customer_id: str, account_uuid: str, *, start: date, end: date) 
 def sync_recent(days: int = ROLLING_DAYS) -> dict[str, int]:
     accounts = [
         a for a in fetch_all(
-            "ads_account", "id,customer_id,descriptive_name,is_manager,time_zone")
+            "ads_account", "id,customer_id,descriptive_name,is_manager,time_zone",
+            platform="google")
         if not a["is_manager"]
     ]
     uit: dict[str, int] = {}

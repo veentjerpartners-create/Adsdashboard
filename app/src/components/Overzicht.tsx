@@ -359,7 +359,9 @@ function herkomstNaam(source: string | null, medium: string | null): string {
   const m = (medium ?? '').toLowerCase();
   const b = (source ?? '').toLowerCase();
   if (m === 'cpc' || m === 'ppc' || m === 'paid_social') {
-    return b === 'google' || !b ? 'Google Ads' : `Advertenties via ${b}`;
+    if (b === 'google' || !b) return 'Google Ads';
+    if (b === 'bing' || b === 'microsoft') return 'Microsoft Ads (Bing)';
+    return `Advertenties via ${b}`;
   }
   if (m === 'organic') return b === 'google' ? 'Google, onbetaald' : `${b}, onbetaald`;
   if (m === 'ai') return `AI-zoekmachine (${b})`;

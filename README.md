@@ -21,7 +21,7 @@ Het stappenplan met wie-doet-wat is [`docs/08-stappenplan.md`](docs/08-stappenpl
 db/migrations/     SQL-migraties, in volgorde draaien
 ingest/            Python — nachtelijke sync, draait op Railway
   core/            config, supabase-client, sync_run, retry, upsert
-  connectors/      google_ads, ga4, crm, mail
+  connectors/      google_ads, ga4, crm, mail, microsoft_ads (CSV)
   export/          offline conversies terug naar Google Ads
 collect/           het first-party /api/collect endpoint (Vercel function)
 app/               Next.js dashboard + klantportaal
@@ -52,10 +52,28 @@ het schema `mi`**, niet in `public`. Gevolgen om te weten:
 1. `cp .env.example .env.local` en vullen. `.env.local` staat in `.gitignore`.
 2. Migraties draaien in Supabase → SQL Editor, in volgorde:
    `001_core.sql`, `002_events_leads.sql`, `003_ads_ga4.sql`,
-   `004_sales.sql`, `005_sync.sql`.
+   `004_sales.sql`, `005_sync.sql`, daarna 007 t/m 016.
    **`006_rls_portal.sql` pas bij fase 4** — de kop van dat bestand legt uit waarom.
 3. `mi` toevoegen bij Project Settings → API → Exposed schemas.
 4. `pip install -r ingest/requirements.txt`
+
+## Microsoft Advertising (Bing)
+
+Bing draait als test naast Google Ads. Klikken en leads komen vanzelf goed
+binnen (de collector herkent de `msclkid` als `bing / cpc`). De kosten niet:
+die haal je wekelijks als CSV uit Microsoft Advertising (Rapporten > Campagne,
+per dag) en leest ze in:
+
+```bash
+python -m ingest.run microsoft --csv rapport.csv --dry-run   # eerst kijken
+python -m ingest.run microsoft --csv rapport.csv --client boers-breuer
+```
+
+Het Microsoft-account wordt bij de eerste import aangemaakt als rij in
+`ads_account` met `platform = 'microsoft'` (migratie 016); daarna gaan campagnes
+en dagcijfers in dezelfde tabellen als Google. De import is idempotent, en
+Microsoft bewaart rapporten jaren, dus een gemiste week haal je later gewoon op.
+Een API-connector komt pas als Bing na de test blijft.
 
 ## Uitgangspunten
 

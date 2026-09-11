@@ -142,7 +142,8 @@ def zorg_voor_acties(customer_id: str, *, dry_run: bool = False) -> dict[str, st
 
 def _accounts_per_klant() -> dict[str, list[dict]]:
     per: dict[str, list[dict]] = {}
-    for a in fetch_all("ads_account", "id,customer_id,client_id,time_zone,is_manager,currency_code"):
+    for a in fetch_all("ads_account", "id,customer_id,client_id,time_zone,is_manager,currency_code",
+                       platform="google"):
         if a["is_manager"] or not a["client_id"]:
             continue
         per.setdefault(a["client_id"], []).append(a)
@@ -390,7 +391,8 @@ def _kort(exc: BaseException) -> str:
 
 def run_all(*, dry_run: bool = False) -> dict[str, dict[str, int]]:
     uit: dict[str, dict[str, int]] = {"wachtrij": vul_wachtrij(dry_run=dry_run)}
-    for a in fetch_all("ads_account", "id,customer_id,descriptive_name,is_manager,client_id"):
+    for a in fetch_all("ads_account", "id,customer_id,descriptive_name,is_manager,client_id",
+                       platform="google"):
         if a["is_manager"] or not a["client_id"]:
             continue
         label = a.get("descriptive_name") or a["customer_id"]

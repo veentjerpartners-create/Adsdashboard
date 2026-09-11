@@ -130,7 +130,8 @@ def _eerste_zinnige_dag(account_uuid: str, grens: date) -> date:
 def _client_accounts() -> list[dict]:
     return [
         a for a in fetch_all(
-            "ads_account", "id,customer_id,descriptive_name,is_manager,time_zone")
+            "ads_account", "id,customer_id,descriptive_name,is_manager,time_zone",
+            platform="google")
         if not a["is_manager"]
     ]
 

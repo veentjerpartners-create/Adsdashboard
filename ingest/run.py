@@ -13,6 +13,8 @@ Startpunt voor alle sync-taken.
     python -m ingest.run conversions              6    offline conversies naar Google Ads
     python -m ingest.run conversions --dry-run    alleen tonen wat er zou gaan
     python -m ingest.run conversions --report     wat er de laatste tijd gebeurde
+    python -m ingest.run microsoft --csv x.csv    Microsoft Ads (Bing): dagcijfers uit een CSV
+    python -m ingest.run microsoft --csv x.csv --dry-run   eerst kijken hoe hij de CSV leest
     python -m ingest.run nightly                  alles wat 's nachts moet
 
 Elke taak schrijft zijn eigen regel in mi.sync_run, dus je kunt achteraf altijd
@@ -252,6 +254,25 @@ def tbl_(name: str):
     return tbl(name)
 
 
+def cmd_microsoft(csv_path: str, account: str | None, name: str | None,
+                  client: str | None, date_format: str | None, dry_run: bool) -> int:
+    """Microsoft Advertising: campagne- of zoekwoordrapport (CSV) inlezen."""
+    from .connectors.microsoft_ads.csv_import import import_csv
+
+    try:
+        counts = import_csv(csv_path, account_nr=account, account_name=name,
+                            client_slug=client, date_format=date_format, dry_run=dry_run)
+    except ValueError as exc:
+        print(f"\n  FOUT  {exc}\n")
+        return 1
+    if not dry_run:
+        print()
+        for k, v in counts.items():
+            print(f"  {k:<18} {v}")
+        print()
+    return 0
+
+
 def cmd_nightly() -> int:
     """Wat de scheduler straks elke nacht doet. Nu handmatig aan te roepen."""
     from .connectors.google_ads import clicks as c
@@ -336,6 +357,19 @@ def main(argv: list[str] | None = None) -> int:
     p_cv.add_argument("--retry", action="store_true",
                       help="mislukte uploads opnieuw in de wachtrij zetten")
 
+    p_ms = sub.add_parser("microsoft", help="Microsoft Advertising (Bing): CSV-rapport inlezen")
+    p_ms.add_argument("--csv", required=True, metavar="BESTAND",
+                      help="campagne- of zoekwoordrapport per dag, geëxporteerd als CSV")
+    p_ms.add_argument("--account", metavar="NUMMER",
+                      help="Microsoft-accountnummer (X1234567); alleen nodig als het niet in de CSV staat")
+    p_ms.add_argument("--name", help="naam voor het account, alleen bij de eerste import")
+    p_ms.add_argument("--client", metavar="SLUG",
+                      help="klant-slug om het account aan te hangen, alleen bij de eerste import")
+    p_ms.add_argument("--date-format", metavar="FMT",
+                      help="datumnotatie als die niet herkend wordt, bijv. %%d-%%m-%%Y")
+    p_ms.add_argument("--dry-run", action="store_true",
+                      help="niets wegschrijven, alleen tonen hoe de CSV gelezen wordt")
+
     sub.add_parser("nightly", help="alles wat 's nachts moet")
 
     args = parser.parse_args(argv)
@@ -357,6 +391,9 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_spend(args.days)
     if args.cmd == "conversions":
         return cmd_conversions(args.dry_run, args.report, args.retry)
+    if args.cmd == "microsoft":
+        return cmd_microsoft(args.csv, args.account, args.name, args.client,
+                             args.date_format, args.dry_run)
     if args.cmd == "nightly":
         return cmd_nightly()
     return 2

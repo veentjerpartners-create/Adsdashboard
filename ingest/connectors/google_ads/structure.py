@@ -134,7 +134,8 @@ def sync_structure(customer_id: str, account_uuid: str) -> dict[str, int]:
 def sync_all() -> dict[str, dict[str, int]]:
     """Alle klantaccounts langs. Een MCC heeft zelf geen campagnes."""
     accounts = [
-        a for a in fetch_all("ads_account", "id,customer_id,descriptive_name,is_manager")
+        a for a in fetch_all("ads_account", "id,customer_id,descriptive_name,is_manager",
+                          platform="google")
         if not a["is_manager"]
     ]
     out: dict[str, dict[str, int]] = {}
