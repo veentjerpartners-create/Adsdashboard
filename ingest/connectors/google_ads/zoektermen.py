@@ -56,24 +56,45 @@ def sync_termen(customer_id: str, account_uuid: str, *, start: date, end: date) 
         "google_ads.search_terms", scope=customer_id,
         window_start=start, window_end=end,
     ) as run:
-        rijen = []
+        # Google segmenteert op zoekwoord: dezelfde zoekterm kan op een dag in
+        # een adgroep via twee zoekwoorden binnenkomen (bijvoorbeeld een brede
+        # en een zinsmatch). Onze sleutel kent geen zoekwoord, dus die rijen
+        # vouwen we samen -- anders weigert Postgres de hele batch omdat een
+        # rij twee keer geraakt wordt. Het zoekwoord dat de meeste klikken
+        # bracht, blijft staan als het zoekwoord van de term.
+        gelezen = 0
+        per_sleutel: dict[tuple, dict] = {}
         for r in search(customer_id, q_termen(start, end)):
+            gelezen += 1
             m = r.metrics
-            rijen.append({
-                "ads_account_id": account_uuid,
-                "date": str(r.segments.date),
-                "campaign_id": r.campaign.id,
-                "ad_group_id": r.ad_group.id,
-                "search_term": r.search_term_view.search_term,
-                "keyword_text": r.segments.keyword.info.text or None,
-                "match_type": _enum(r.segments.keyword.info.match_type),
-                "term_status": _enum(r.search_term_view.status),
-                "impressions": m.impressions,
-                "clicks": m.clicks,
-                "cost_micros": m.cost_micros,
-                "conversions": round(m.conversions, 2),
-            })
-        run.read(len(rijen))
+            sleutel = (str(r.segments.date), r.campaign.id, r.ad_group.id,
+                       r.search_term_view.search_term)
+            rij = per_sleutel.get(sleutel)
+            if rij is None:
+                per_sleutel[sleutel] = {
+                    "ads_account_id": account_uuid,
+                    "date": str(r.segments.date),
+                    "campaign_id": r.campaign.id,
+                    "ad_group_id": r.ad_group.id,
+                    "search_term": r.search_term_view.search_term,
+                    "keyword_text": r.segments.keyword.info.text or None,
+                    "match_type": _enum(r.segments.keyword.info.match_type),
+                    "term_status": _enum(r.search_term_view.status),
+                    "impressions": m.impressions,
+                    "clicks": m.clicks,
+                    "cost_micros": m.cost_micros,
+                    "conversions": round(m.conversions, 2),
+                }
+                continue
+            if m.clicks > rij["clicks"]:
+                rij["keyword_text"] = r.segments.keyword.info.text or None
+                rij["match_type"] = _enum(r.segments.keyword.info.match_type)
+            rij["impressions"] += m.impressions
+            rij["clicks"] += m.clicks
+            rij["cost_micros"] += m.cost_micros
+            rij["conversions"] = round(rij["conversions"] + m.conversions, 2)
+        rijen = list(per_sleutel.values())
+        run.read(gelezen)
         # term_key is een generated column; die mag niet mee in de insert, maar
         # PostgREST heeft hem wel nodig als conflictdoel.
         geschreven = upsert("ads_search_term_daily", rijen, on_conflict=GRAIN)
