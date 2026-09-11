@@ -175,6 +175,17 @@ h2 .zijkant { float: right; font-family: var(--sans); font-size: 12.5px; color: 
 
 .uitleg { color: var(--tekst-2); font-size: 13.5px; max-width: 68ch; margin: -4px 0 18px; }
 
+/* Het bericht uit het formulier: letterlijk, met de regeleindes van de
+   schrijver. Dit is het enige stuk tekst op de pagina dat de klant zelf typte. */
+.bericht {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  margin: 14px 0 0; padding: 12px 14px;
+  border-left: 3px solid var(--amber);
+  background: var(--amber-waas);
+  border-radius: 0 6px 6px 0; font-size: 14px; line-height: 1.55;
+  font-family: var(--serif); color: var(--tekst);
+}
+
 /* ------------------------------------------------------------ grootboek */
 /* Geen kaartjes met schaduwen: een rij cijfers met haarlijnen ertussen,
    zoals een rekeningoverzicht. Dat leest rustiger en telt beter op. */

@@ -317,6 +317,10 @@
         email: (gegevens.email || '').slice(0, 200),
         phone: (gegevens.phone || '').slice(0, 60),
         subject: (gegevens.subject || '').slice(0, 200),
+        // Wat iemand wil staat in het bericht; zonder dat is een lead een
+        // naam met een telefoonnummer.
+        message: (gegevens.message || '').slice(0, 4000),
+        city: (gegevens.city || '').slice(0, 100),
         lead_type: gegevens.lead_type || 'form',
         browser_lead_id: gegevens.browser_lead_id || ''
       };

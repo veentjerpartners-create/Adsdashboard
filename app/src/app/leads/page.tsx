@@ -27,7 +27,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
   const sc = await scope(klantSlug || undefined);
 
   let q = s.from('lead')
-    .select('id,public_ref,name,email,phone,client_id,website_id,created_at,status,lead_type,source,medium,campaign,keyword,needs_review')
+    .select('id,public_ref,name,email,phone,client_id,website_id,created_at,status,lead_type,source,medium,campaign,keyword,needs_review,subject,city')
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -116,6 +116,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
               <tr>
                 <th>Binnengekomen</th>
                 <th>Wie</th>
+                <th>Waarvoor</th>
                 <th>Klant</th>
                 <th>Kwam via</th>
                 <th>Status</th>
@@ -139,6 +140,10 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
                     ) : (
                       <span className="onder">{(l.email as string) || ''}</span>
                     )}
+                  </td>
+                  <td>
+                    {(l.subject as string) || <span className="leegwaarde">—</span>}
+                    {l.city && <span className="onder">{l.city as string}</span>}
                   </td>
                   <td>
                     {klantNaam.get(l.client_id as string) ?? '—'}

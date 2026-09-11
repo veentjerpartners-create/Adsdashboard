@@ -27,8 +27,15 @@ export async function Overzicht({
     .select('ads_account_id,campaign_id,impressions,clicks,cost,conversions')
     .gte('date', start).lte('date', eind);
   let lq = s.from('lead')
-    .select('id,client_id,status,created_at')
+    .select('id,client_id,status,created_at,source,medium')
     .gte('created_at', `${start}T00:00:00Z`).is('deleted_at', null);
+  let sq = s.from('visit_session')
+    .select('id,client_id,source,medium')
+    .gte('started_at', `${start}T00:00:00Z`);
+  let cq = s.from('lead_event')
+    .select('id,client_id,source,medium,event_type')
+    .in('event_type', ['whatsapp_click', 'phone_click', 'email_click'])
+    .gte('occurred_at', `${start}T00:00:00Z`);
   let tq = s.from('ads_search_term_daily')
     .select('search_term,keyword_text,match_type,term_status,impressions,clicks,cost,campaign_id')
     .gte('date', start).lte('date', eind);
@@ -37,11 +44,16 @@ export async function Overzicht({
     mq = mq.in('ads_account_id', accounts);
     tq = tq.in('ads_account_id', accounts);
   }
-  if (scope.actief) lq = lq.eq('client_id', scope.actief.id);
+  if (scope.actief) {
+    lq = lq.eq('client_id', scope.actief.id);
+    sq = sq.eq('client_id', scope.actief.id);
+    cq = cq.eq('client_id', scope.actief.id);
+  }
 
-  const [metrics, leads, termen, campagnes] = await Promise.all([
+  const [metrics, leads, termen, campagnes, sessies, pogingen] = await Promise.all([
     mq, lq, tq,
     s.from('ads_campaign').select('ads_account_id,campaign_id,name,status'),
+    sq, cq,
   ]);
 
   const t = { impr: 0, clicks: 0, kosten: 0, conv: 0 };
@@ -115,6 +127,24 @@ export async function Overzicht({
     .sort((a, b) => b.kosten - a.kosten || b.clicks - a.clicks || b.impr - a.impr);
   const termKosten = termRijen.reduce((a, r) => a + r.kosten, 0);
 
+  // --- herkomst: Ads naast organisch, rechtstreeks en de rest --------------
+  // Per bron: hoeveel sessies, hoeveel mensen contact zochten (WhatsApp,
+  // telefoon, e-mail) en hoeveel het een lead met naam werd.
+  type Bron = { naam: string; sessies: number; pogingen: number; leads: number };
+  const perBron = new Map<string, Bron>();
+  const bron = (source: unknown, medium: unknown): Bron => {
+    const k = herkomstNaam(source as string | null, medium as string | null);
+    let b = perBron.get(k);
+    if (!b) { b = { naam: k, sessies: 0, pogingen: 0, leads: 0 }; perBron.set(k, b); }
+    return b;
+  };
+  for (const r of sessies.data ?? []) bron(r.source, r.medium).sessies += 1;
+  for (const r of pogingen.data ?? []) bron(r.source, r.medium).pogingen += 1;
+  for (const r of rijenLeads) bron(r.source, r.medium).leads += 1;
+  const bronRijen = [...perBron.values()]
+    .sort((a, b) => b.leads - a.leads || b.pogingen - a.pogingen || b.sessies - a.sessies);
+  const sessiesTotaal = bronRijen.reduce((a, r) => a + r.sessies, 0);
+
   const trechter = [
     { etiket: 'Vertoningen', n: t.impr },
     { etiket: 'Klikken', n: t.clicks },
@@ -174,6 +204,50 @@ export async function Overzicht({
           );
         })}
       </div>
+
+      <h2>
+        Waar bezoekers vandaan komen
+        {sessiesTotaal > 0 && (
+          <span className="zijkant">{getal(sessiesTotaal)} bezoeken op de websites</span>
+        )}
+      </h2>
+      {bronRijen.length === 0 ? (
+        <div className="niets">
+          <strong>Nog geen bezoeken gemeten</strong>
+          Zodra de collector op de websites draait, staat hier per bron hoeveel
+          mensen kwamen, hoeveel contact zochten en hoeveel een lead werden.
+        </div>
+      ) : (
+        <>
+          <p className="uitleg">
+            Alle bezoeken, niet alleen die uit advertenties. Een contactpoging is
+            een klik op WhatsApp, telefoon of e-mail zonder dat we een naam
+            hebben; een lead is een ingevuld formulier.
+          </p>
+          <div className="tabelrol">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bron</th>
+                  <th className="cijfer">Bezoeken</th>
+                  <th className="cijfer">Contactpogingen</th>
+                  <th className="cijfer">Leads</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bronRijen.map((r) => (
+                  <tr key={r.naam}>
+                    <td><span className="hoofd">{r.naam}</span></td>
+                    <td className="cijfer">{r.sessies || <span className="leegwaarde">0</span>}</td>
+                    <td className="cijfer">{r.pogingen || <span className="leegwaarde">—</span>}</td>
+                    <td className="cijfer">{r.leads || <span className="leegwaarde">—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <h2>
         Waar je voor betaalt
@@ -278,6 +352,22 @@ export async function Overzicht({
       </div>
     </>
   );
+}
+
+/** Bron en medium in gewone taal, op één hoop per soort verkeer. */
+function herkomstNaam(source: string | null, medium: string | null): string {
+  const m = (medium ?? '').toLowerCase();
+  const b = (source ?? '').toLowerCase();
+  if (m === 'cpc' || m === 'ppc' || m === 'paid_social') {
+    return b === 'google' || !b ? 'Google Ads' : `Advertenties via ${b}`;
+  }
+  if (m === 'organic') return b === 'google' ? 'Google, onbetaald' : `${b}, onbetaald`;
+  if (m === 'ai') return `AI-zoekmachine (${b})`;
+  if (m === 'social') return `Sociaal (${b})`;
+  if (m === 'referral') return `Verwijzing van ${b}`;
+  if (m === 'email') return 'E-mail';
+  if (b === 'direct' || (!b && !m)) return b ? 'Rechtstreeks' : 'Onbekend';
+  return [b, m].filter(Boolean).join(' / ');
 }
 
 function Post({ naam, cijfer, bij, wacht, klem }: {

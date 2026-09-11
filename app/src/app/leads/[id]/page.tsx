@@ -59,6 +59,18 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
 
   const gestitcht = (identiteiten.data ?? []).some((i) => i.method === 'visitor_stitch');
 
+  // Wat het formulier verder nog meegaf: de dienst van de pagina, de plaats,
+  // welk formulier. Alleen tonen wat er is.
+  const LABEL: Record<string, string> = {
+    service: 'Dienst', city: 'Plaats', plaats: 'Plaats', form_id: 'Formulier',
+    source_page: 'Vanaf pagina',
+  };
+  const aanvraagMeta: [string, string][] = Object.entries(
+    ((ident?.metadata ?? {}) as Record<string, unknown>))
+    .filter(([k, v]) => LABEL[k] && v !== '' && v != null)
+    .filter(([k]) => !(k === 'city' || k === 'plaats') || !lead.city)
+    .map(([k, v]) => [LABEL[k], String(v)]);
+
   return (
     <>
       <p className="periode">
@@ -73,6 +85,7 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
 
       <h1 className="zin">
         {(lead.name as string) || 'Lead zonder naam'}
+        {lead.subject ? <> vraagt naar <b>{String(lead.subject).toLowerCase()}</b> en</> : null}
         {lead.campaign ? (
           <> kwam binnen via <b>{lead.campaign as string}</b>.</>
         ) : lead.source ? (
@@ -90,6 +103,30 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
 
       <div className="tweeluik">
         <div>
+          <div className="blok">
+            <h3>De aanvraag</h3>
+            <dl className="lijst">
+              <dt>Soort</dt><dd>{soort(lead.lead_type as string)}</dd>
+              <dt>Onderwerp</dt><dd>{(lead.subject as string) || '—'}</dd>
+              {aanvraagMeta.map(([k, v]) => (
+                <div key={k} style={{ display: 'contents' }}>
+                  <dt>{k}</dt><dd>{v}</dd>
+                </div>
+              ))}
+              {lead.city ? <><dt>Plaats</dt><dd>{lead.city as string}</dd></> : null}
+              {lead.budget_band ? <><dt>Budget</dt><dd>{lead.budget_band as string}</dd></> : null}
+            </dl>
+            {lead.message ? (
+              <p className="bericht">{lead.message as string}</p>
+            ) : (
+              <p className="uitleg" style={{ marginTop: 12, marginBottom: 0, fontSize: 12.5 }}>
+                {lead.ingest_source === 'collector'
+                  ? 'Geen bericht meegekomen. Aanvragen van vóór 11 september 2026 hebben er geen; kijk in de Formspree-mail.'
+                  : 'Geen bericht bekend.'}
+              </p>
+            )}
+          </div>
+
           <div className="blok">
             <h3>Wat deze persoon deed</h3>
             {sessies.length === 0 ? (
@@ -185,7 +222,6 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
                   ? <a href={`tel:${lead.phone_e164}`}>{lead.phone_e164 as string}</a>
                   : ((lead.phone as string) || '—')}
               </dd>
-              <dt>Onderwerp</dt><dd>{(lead.subject as string) || '—'}</dd>
               <dt>Toestemming</dt>
               <dd>
                 {lead.consent_marketing === true ? 'gegeven'
@@ -262,6 +298,19 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
       </div>
     </>
   );
+}
+
+/** Hoe de lead binnenkwam, in gewone taal. */
+function soort(leadType: string): string {
+  switch (leadType) {
+    case 'form': return 'Formulier op de website';
+    case 'phone': return 'Telefoongesprek';
+    case 'whatsapp': return 'WhatsApp-gesprek';
+    case 'email': return 'E-mail';
+    case 'manual': return 'Handmatig ingevoerd';
+    case 'import': return 'Geïmporteerd';
+    default: return leadType;
+  }
 }
 
 /** De matchmethode in gewone taal. */
