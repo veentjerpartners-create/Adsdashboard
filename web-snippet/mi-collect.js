@@ -84,13 +84,19 @@
     return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
   }
 
+  function cookie(naam) {
+    try {
+      var m = document.cookie.match(new RegExp('(?:^|; *)' + naam + '=([^;]+)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch (e) { return null; }
+  }
+
   /* ---------- bezoeker: 180 dagen, ons eigen pseudonieme nummer ---------- */
   function visitorId() {
     var v = ls(VID_KEY);
     if (v) return v;
     // Cookie als vangnet: localStorage overleeft niet elke privacy-instelling.
-    var m = document.cookie.match(/(?:^|;\s*)mi_vid=([^;]+)/);
-    v = m ? decodeURIComponent(m[1]) : uuid();
+    v = cookie(VID_KEY) || uuid();
     ls(VID_KEY, v);
     try {
       document.cookie = 'mi_vid=' + encodeURIComponent(v) +
@@ -152,9 +158,14 @@
         agid: param('mi_agid')
       };
     }
+    // Geen nieuwe klik: de bewaarde. Eerst localStorage, dan het cookie dat
+    // ons endpoint server-side zet. Safari wist door scripts gezette opslag na
+    // zeven dagen zonder bezoek; een cookie uit een HTTP-antwoord laat het
+    // staan. Zo blijven de 90 dagen ook op een iPhone 90 dagen.
     try {
-      var oud = JSON.parse(ls(CLICK_KEY) || 'null');
-      if (!oud || (Date.now() - oud.t) > CLICK_TTL) return null;
+      var oud = JSON.parse(ls(CLICK_KEY) || cookie(CLICK_KEY) || 'null');
+      if (!oud || !oud.t || (Date.now() - oud.t) > CLICK_TTL) return null;
+      ls(CLICK_KEY, JSON.stringify(oud));   // terug in localStorage
       return oud;
     } catch (e) { return null; }
   })();
@@ -177,10 +188,21 @@
     return 'desktop';
   }
 
+  /* Elke site bewaart de cookiekeuze anders. Boers & Breuer: de tekst
+   * 'accepted' onder 'cookie-consent'. Rotterdamse Bouwbedrijf: JSON
+   * {analytics, ads} onder 'rbb_consent'. We kijken naar beide, zodat het
+   * snippet op elke site hetzelfde blijft. Wat telt is de advertentiekeuze:
+   * die bepaalt of een lead met gegevens naar Google Ads mag. */
   function consent() {
     try {
       var c = localStorage.getItem('cookie-consent');
-      return c === 'accepted' ? 'accepted' : (c ? 'denied' : 'unknown');
+      if (c) return c === 'accepted' ? 'accepted' : 'denied';
+      var r = localStorage.getItem('rbb_consent');
+      if (r) {
+        var j = JSON.parse(r);
+        return (j && (j.ads || j.analytics)) ? 'accepted' : 'denied';
+      }
+      return 'unknown';
     } catch (e) { return 'unknown'; }
   }
 
@@ -246,6 +268,9 @@
     };
     if (klik && klik.cid) p.meta.mi_cid = klik.cid;
     if (klik && klik.agid) p.meta.mi_agid = klik.agid;
+    // De bewaarde klik in zijn geheel, zodat het endpoint hem als HTTP-cookie
+    // kan terugzetten (zie de opmerking bij CLICK_KEY).
+    if (klik && klik.id) p.klk = klik;
     if (meta) {
       for (var k in meta) {
         if (Object.prototype.hasOwnProperty.call(meta, k) &&

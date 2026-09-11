@@ -27,6 +27,14 @@
  *   MI_SUPABASE_KEY   de secret key -- server-side, komt nooit in de browser
  *   MI_COLLECTOR_KEY  de collector_key van deze website
  *   MI_ALLOWED_ORIGIN bijv. https://boersbreuer.nl
+ *
+ * COOKIES UIT HET ANTWOORD
+ * Het snippet bewaart de bezoeker-ID en de advertentieklik in localStorage,
+ * met een cookie als vangnet. Safari gooit alles wat een script zelf opslaat
+ * na zeven dagen zonder bezoek weg -- localStorage én document.cookie. Een
+ * cookie dat de server zet via Set-Cookie laat Safari staan. Daarom zet dit
+ * endpoint de twee cookies opnieuw bij elk event: dezelfde waarde, maar nu
+ * met een houdbaarheid die op een iPhone ook echt geldt.
  */
 
 const SUPABASE_URL = process.env.MI_SUPABASE_URL;
@@ -35,6 +43,46 @@ const COLLECTOR_KEY = process.env.MI_COLLECTOR_KEY;
 const ALLOWED_ORIGIN = process.env.MI_ALLOWED_ORIGIN || '';
 
 const MAX_BYTES = 8 * 1024;
+
+const DAG = 24 * 3600;
+const VID_DAGEN = 180;                 // zelfde als in het snippet
+const CLICK_TTL_MS = 90 * DAG * 1000;  // zelfde 90 dagen als Google
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLICK_TYPES = new Set(['gclid', 'wbraid', 'gbraid', 'msclkid', 'fbclid']);
+
+/** Alleen wat we zelf ook in localStorage zouden zetten, met een lengtegrens
+ *  per veld: een cookie mag 4 KB zijn en hier hoort nooit meer dan een paar
+ *  honderd bytes in. */
+function schoneKlik(k) {
+  if (!k || typeof k !== 'object') return null;
+  const t = Number(k.t);
+  if (!k.id || !CLICK_TYPES.has(k.type) || !t || Date.now() - t > CLICK_TTL_MS) return null;
+  const s = (v) => (typeof v === 'string' ? v.slice(0, 200) : '');
+  return {
+    id: s(k.id), type: k.type, t,
+    src: s(k.src), med: s(k.med), cmp: s(k.cmp), term: s(k.term), cnt: s(k.cnt),
+    cid: s(k.cid), agid: s(k.agid),
+  };
+}
+
+function cookie(naam, waarde, seconden) {
+  return `${naam}=${encodeURIComponent(waarde)}; Path=/; Max-Age=${seconden}; SameSite=Lax; Secure`;
+}
+
+/** De cookies die het snippet leest, nu gezet door de server. */
+function cookiesVoor(body) {
+  const uit = [];
+  if (typeof body.vid === 'string' && UUID.test(body.vid)) {
+    uit.push(cookie('mi_vid', body.vid, VID_DAGEN * DAG));
+  }
+  const klik = schoneKlik(body.klk);
+  if (klik) {
+    const rest = Math.floor((klik.t + CLICK_TTL_MS - Date.now()) / 1000);
+    if (rest > 60) uit.push(cookie('mi_click', JSON.stringify(klik), rest));
+  }
+  return uit;
+}
 
 /** Simpele rate limit per instantie. Vercel draait meerdere instanties, dus dit
  *  is een rem, geen slot -- het echte slot is de validatie hieronder. */
@@ -112,6 +160,11 @@ export default async function handler(req, res) {
   // geen events voor een andere website insturen.
   body.k = COLLECTOR_KEY;
 
+  // De bewaarde klik is voor het cookie, niet voor de database: die krijgt
+  // dezelfde informatie al via utm en cid.
+  const cookies = cookiesVoor(body);
+  delete body.klk;
+
   if (looksLikeBot(req.headers['user-agent'])) {
     body.meta = Object.assign({}, body.meta, { bot: true });
   }
@@ -140,8 +193,10 @@ export default async function handler(req, res) {
     }
 
     res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN || '*');
+    if (cookies.length) res.setHeader('Set-Cookie', cookies);
     // 204 zonder body: sendBeacon leest het antwoord toch niet, en zo blijft
-    // het zo licht mogelijk voor de bezoeker.
+    // het zo licht mogelijk voor de bezoeker. De cookies verwerkt de browser
+    // wél, ook bij een beacon.
     return res.status(204).end();
   } catch (err) {
     console.error('collect: onverwacht', err);
