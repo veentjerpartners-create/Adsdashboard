@@ -144,10 +144,17 @@ def maak_token() -> int:
         scopes=[SCOPE],
     )
     print()
-    print("Er gaat een browser open. Log in met het Google-account dat toegang")
-    print("heeft tot het MCC (hetzelfde als voor de Ads API).")
+    print("Open de link hieronder in een browser waar je ingelogd bent met het")
+    print("Google-account dat toegang heeft tot het MCC (zelfde als voor de Ads API).")
+    print("Na het toestaan komt de browser terug op localhost en is het klaar.")
     print()
-    creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
+    sys.stdout.flush()
+    # Geen browser openen: de standaardbrowser is niet altijd de browser waar
+    # het juiste account in zit. De link afdrukken en zelf laten plakken.
+    creds = flow.run_local_server(
+        port=8931, prompt="consent", access_type="offline", open_browser=False,
+        authorization_prompt_message="LINK (kopieer en plak in je browser):\n\n{url}\n",
+    )
     print()
     print("Zet deze regel in .env.local:")
     print()
