@@ -43,6 +43,7 @@
   var SID_KEY = 'mi_sid';
   var SID_TS = 'mi_sid_ts';
   var CLICK_KEY = 'mi_click';
+  var INTERN_KEY = 'mi_intern';
   var SESSIE_MINUTEN = 30;
   var CLICK_TTL = 90 * 24 * 60 * 60 * 1000;   // zelfde 90 dagen als Google
 
@@ -90,6 +91,27 @@
       return m ? decodeURIComponent(m[1]) : null;
     } catch (e) { return null; }
   }
+
+  /* ---------- eigen bezoek: niet meten ----------
+   * Wie aan de site werkt, klikt alles door en vervuilt zo de cijfers: op
+   * 11 september 2026 waren 22 van de 100 sessies de bouwer zelf, inclusief
+   * een "contactpoging" via WhatsApp. Eén keer  ?mi=intern  achter een
+   * pagina-adres zetten en deze browser wordt een jaar lang niet meer
+   * meegeteld;  ?mi=extern  zet het terug. Zowel localStorage als een cookie,
+   * omdat Safari door scripts gezette opslag na zeven dagen opruimt en het
+   * cookie het dan nog even volhoudt.
+   */
+  function zetIntern(aan) {
+    ls(INTERN_KEY, aan ? '1' : '');
+    try {
+      document.cookie = INTERN_KEY + '=' + (aan ? '1' : '') +
+        ';path=/;max-age=' + (aan ? 365 * 24 * 3600 : 0) + ';SameSite=Lax' +
+        (location.protocol === 'https:' ? ';Secure' : '');
+    } catch (e) {}
+  }
+  if (param('mi') === 'intern') zetIntern(true);
+  if (param('mi') === 'extern') zetIntern(false);
+  var INTERN = ls(INTERN_KEY) === '1' || cookie(INTERN_KEY) === '1';
 
   /* ---------- bezoeker: 180 dagen, ons eigen pseudonieme nummer ---------- */
   function visitorId() {
@@ -232,6 +254,7 @@
   /* ---------- versturen ---------- */
   function stuur(payload) {
     if (KEY.indexOf('VUL-') === 0) return;   // nog niet ingesteld: niets doen
+    if (INTERN) return;                       // eigen bezoek: niet meten
     var body = JSON.stringify(payload);
     try {
       if (navigator.sendBeacon) {
@@ -329,7 +352,7 @@
 
     /** Voor debuggen: wat weten we op dit moment? */
     debug: function () {
-      return { vid: VID, sid: SID, klik: klik, ga: gaClientId(), consent: consent() };
+      return { vid: VID, sid: SID, klik: klik, ga: gaClientId(), consent: consent(), intern: INTERN };
     }
   };
 

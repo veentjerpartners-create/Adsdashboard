@@ -95,6 +95,15 @@ gemiste week haal je dus later gewoon op. In het overzicht staat Bing als eigen
 regel onder "Waar bezoekers vandaan komen", met kosten en prijs per lead, en
 Bing-campagnes zijn in de campagnetabel als zodanig gelabeld.
 
+## Eigen bezoek niet meetellen
+
+Wie aan een site werkt, klikt alles door en vervuilt de cijfers (op 11 september
+was een vijfde van alle sessies de bouwer zelf). Open één keer op je eigen
+browser een pagina met `?mi=intern` erachter, bijvoorbeeld
+`https://rotterdamsebouwbedrijf.nl/?mi=intern` — daarna stuurt die browser een
+jaar lang niets meer naar de collector. Per site en per browser apart doen;
+`?mi=extern` zet het terug. Controleren: `MI.debug().intern` in de console.
+
 ## Uitgangspunten
 
 - **Nooit `DELETE` bij sync.** Alleen upsert op een natuurlijke sleutel, zodat
