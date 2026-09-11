@@ -21,6 +21,10 @@ De conversieacties zijn van het type UPLOAD_CLICKS (de bestaande WEBPAGE-acties
 accepteren geen uploads), staan op SECUNDAIR en hebben een terugkijkvenster
 van 90 dagen -- het maximum, en dezelfde termijn als ons snippet.
 
+Het versturen gaat via de Data Manager API (zie datamanager.py): het oude
+ConversionUploadService-kanaal is sinds mei 2026 dicht voor nieuwe
+integraties. De acties zelf worden nog gewoon via de Ads API aangemaakt.
+
 Secundair betekent: Google telt ze in "Alle conversies", maar biedt er niet
 op. Dat is bewust. Eerst een maand kijken of de cijfers kloppen, dan pas
 beslissen of WhatsApp mag sturen (roadmap stap 44).
@@ -261,11 +265,22 @@ def _bedrag(v) -> float | None:
 
 
 # --------------------------------------------------------------------------
-# 3. Uploaden
+# 3. Uploaden, via de Data Manager API
 # --------------------------------------------------------------------------
 
 def upload_account(acc: dict, *, dry_run: bool = False) -> dict[str, int]:
-    """Alle pending rijen van één account naar Google."""
+    """
+    Alle pending rijen van één account naar Google.
+
+    Eerst een validate_only-ronde per batch: de Data Manager API verwerkt
+    asynchroon, en dit is het enige moment waarop Google meteen zegt wat er
+    mis is. Daarna de echte upload. Een afgekeurde batch wordt rij voor rij
+    opnieuw gevalideerd, zodat één foute rij niet de hele batch blokkeert en
+    de fout bij de juiste rij komt te staan.
+    """
+    from ..connectors.google_ads.client import mcc_id
+    from . import datamanager as dmx
+
     customer_id = acc["customer_id"]
     rijen = (
         tbl("conversion_upload").select("*")
@@ -291,95 +306,82 @@ def upload_account(acc: dict, *, dry_run: bool = False) -> dict[str, int]:
                          r["conversion_action_rn"], r["conversion_datetime"])
             return {"pending": len(rijen), "uploaded": 0, "failed": 0}
 
-        client = ads_client()
-        svc = client.get_service("ConversionUploadService")
+        mcc = mcc_id()
         geslaagd = mislukt = 0
         nu = datetime.now(timezone.utc).isoformat()
 
+        def event(r: dict) -> dict:
+            rn = naar_rn.get(r["conversion_action_rn"], r["conversion_action_rn"])
+            return {
+                "action_id": rn.rsplit("/", 1)[-1],
+                "click_type": r["click_type"], "click_id": r["click_id"],
+                "order_id": r["order_id"],
+                "at": datetime.fromisoformat(r["conversion_datetime"]),
+                "value": r["value"], "currency": r["currency"],
+                "consent": r["consent_ad_user_data"],
+            }
+
+        def markeer(r: dict, ok: bool, toelichting: str | None, request_id: str | None):
+            rn = naar_rn.get(r["conversion_action_rn"], r["conversion_action_rn"])
+            velden = {"attempts": r["attempts"] + 1, "conversion_action_rn": rn}
+            if ok:
+                velden.update({
+                    "status": "uploaded", "uploaded_at": nu, "last_error": None,
+                    "google_response": {"request_id": request_id, "kanaal": "data_manager",
+                                        "opmerking": toelichting},
+                })
+            else:
+                velden.update({"status": "failed", "last_error": (toelichting or "?")[:1000]})
+            tbl("conversion_upload").update(velden).eq("id", r["id"]).execute()
+
         for i in range(0, len(klaar), BATCH):
             batch = klaar[i:i + BATCH]
-            ops = []
-            for r in batch:
-                c = client.get_type("ClickConversion")
-                setattr(c, r["click_type"], r["click_id"])       # gclid / gbraid / wbraid
-                c.conversion_action = naar_rn.get(r["conversion_action_rn"], r["conversion_action_rn"])
-                c.conversion_date_time = r["conversion_datetime"]
-                c.order_id = r["order_id"]
-                if r["value"] is not None:
-                    c.conversion_value = float(r["value"])
-                    c.currency_code = r["currency"]
-                c.consent.ad_user_data = getattr(
-                    client.enums.ConsentStatusEnum, r["consent_ad_user_data"] or "UNKNOWN")
-                c.consent.ad_personalization = getattr(
-                    client.enums.ConsentStatusEnum, r["consent_ad_personalization"] or "UNKNOWN")
-                ops.append(c)
-
-            req = client.get_type("UploadClickConversionsRequest")
-            req.customer_id = customer_id
-            req.conversions.extend(ops)
-            req.partial_failure = True
-            resp = svc.upload_click_conversions(request=req)
-
-            fouten = _partial_failures(client, resp)
-            for idx, r in enumerate(batch):
-                if idx in fouten:
+            try:
+                dmx.ingest(mcc=mcc, customer_id=customer_id,
+                           events=[event(r) for r in batch], validate_only=True)
+                goede = batch
+            except Exception as exc:  # noqa: BLE001
+                # Iets in deze batch deugt niet. Rij voor rij uitzoeken welke.
+                log.warning("%s: batch afgekeurd (%s), rij voor rij valideren",
+                            customer_id, _kort(exc))
+                goede = []
+                for r in batch:
+                    try:
+                        dmx.ingest(mcc=mcc, customer_id=customer_id,
+                                   events=[event(r)], validate_only=True)
+                        goede.append(r)
+                    except Exception as exc1:  # noqa: BLE001
+                        mislukt += 1
+                        markeer(r, False, _kort(exc1), None)
+            if not goede:
+                continue
+            try:
+                request_id, warnings = dmx.ingest(
+                    mcc=mcc, customer_id=customer_id, events=[event(r) for r in goede])
+            except Exception as exc:  # noqa: BLE001
+                for r in goede:
                     mislukt += 1
-                    tbl("conversion_upload").update({
-                        "status": "failed",
-                        "attempts": r["attempts"] + 1,
-                        "last_error": fouten[idx][:1000],
-                        "conversion_action_rn": naar_rn.get(r["conversion_action_rn"], r["conversion_action_rn"]),
-                    }).eq("id", r["id"]).execute()
-                else:
-                    geslaagd += 1
-                    res = resp.results[idx] if idx < len(resp.results) else None
-                    tbl("conversion_upload").update({
-                        "status": "uploaded",
-                        "attempts": r["attempts"] + 1,
-                        "uploaded_at": nu,
-                        "last_error": None,
-                        "conversion_action_rn": naar_rn.get(r["conversion_action_rn"], r["conversion_action_rn"]),
-                        "google_response": {
-                            "conversion_action": getattr(res, "conversion_action", None),
-                            "conversion_date_time": getattr(res, "conversion_date_time", None),
-                        } if res is not None else None,
-                    }).eq("id", r["id"]).execute()
+                    markeer(r, False, _kort(exc), None)
+                continue
+            for r in goede:
+                geslaagd += 1
+                markeer(r, True, "; ".join(warnings) or None, request_id)
 
         run.wrote(geslaagd)
         if mislukt:
-            run.warn("partial_failure", f"{mislukt} van {len(klaar)} afgewezen door Google")
+            run.warn("afgekeurd", f"{mislukt} van {len(klaar)} afgekeurd door Google")
         return {"pending": len(rijen), "uploaded": geslaagd, "failed": mislukt}
 
 
-def _partial_failures(client, resp) -> dict[int, str]:
-    """index in de batch -> foutmelding. Leeg als alles goed ging."""
-    uit: dict[int, str] = {}
-    pfe = getattr(resp, "partial_failure_error", None)
-    if not pfe or not pfe.details:
-        return uit
-    failure_type = client.get_type("GoogleAdsFailure")
-    for detail in pfe.details:
-        try:
-            failure = type(failure_type).deserialize(detail.value)
-        except Exception:  # noqa: BLE001
-            continue
-        for err in failure.errors:
-            idx = None
-            for el in err.location.field_path_elements:
-                if el.field_name == "conversions":
-                    idx = el.index
-                    break
-            if idx is None:
-                continue
-            code = ""
-            try:
-                which = err.error_code.__class__.pb(err.error_code).WhichOneof("error_code")
-                if which:
-                    code = f"{which}={getattr(err.error_code, which)} "
-            except Exception:  # noqa: BLE001
-                pass
-            uit[idx] = (uit.get(idx, "") + f"{code}{err.message}; ").strip("; ")
-    return uit
+def _kort(exc: BaseException) -> str:
+    """Google API-fouten compact: de boodschap plus eventuele details."""
+    msg = getattr(exc, "message", None) or str(exc)
+    details = getattr(exc, "details", None)
+    try:
+        extra = "; ".join(str(d) for d in (details() if callable(details) else details or []))
+    except Exception:  # noqa: BLE001
+        extra = ""
+    return (msg + (f" | {extra}" if extra else "")).replace("\n", " ")[:1000]
 
 
 # --------------------------------------------------------------------------

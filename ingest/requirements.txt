@@ -20,3 +20,7 @@ msal>=1.28.0
 # Overig
 requests>=2.31.0
 tenacity>=8.2.0
+
+# Data Manager API (offline conversies)
+google-ads-datamanager>=0.9.0
+google-auth-oauthlib>=1.2.0
