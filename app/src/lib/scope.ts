@@ -22,6 +22,8 @@ export type Scope = {
   actief: Klant | null;
   /** De ads_account-ids binnen de scope; leeg betekent geen beperking. */
   accountIds: string[];
+  /** Per ads_account-id het platform: 'google' of 'microsoft'. */
+  platformVanAccount: Record<string, 'google' | 'microsoft'>;
   clientIds: string[];
 };
 
@@ -29,7 +31,7 @@ export async function scope(slug?: string): Promise<Scope> {
   const s = db();
   const [{ data: klanten }, { data: accounts }] = await Promise.all([
     s.from('client').select('id,name,slug,default_margin_pct').order('name'),
-    s.from('ads_account').select('id,client_id,is_manager'),
+    s.from('ads_account').select('id,client_id,is_manager,platform'),
   ]);
 
   const alle = (klanten ?? []) as Klant[];
@@ -40,5 +42,10 @@ export async function scope(slug?: string): Promise<Scope> {
     .filter((a) => !a.is_manager && a.client_id && binnen.includes(a.client_id as string))
     .map((a) => a.id as string);
 
-  return { klanten: alle, actief, accountIds, clientIds: binnen };
+  const platformVanAccount: Scope['platformVanAccount'] = {};
+  for (const a of accounts ?? []) {
+    platformVanAccount[a.id as string] = a.platform === 'microsoft' ? 'microsoft' : 'google';
+  }
+
+  return { klanten: alle, actief, accountIds, platformVanAccount, clientIds: binnen };
 }

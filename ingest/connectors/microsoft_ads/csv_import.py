@@ -43,7 +43,7 @@ GRAIN_KEY = "ads_account_id,date,campaign_id,ad_group_id,criterion_id"
 # Kolomnamen zoals Microsoft ze exporteert, Engels en Nederlands, genormaliseerd
 # (kleine letters, alleen letters en cijfers). Eerste treffer wint.
 ALIASES: dict[str, tuple[str, ...]] = {
-    "date":            ("gregoriandate", "date", "gregoriaansedatum", "datum", "dag", "day"),
+    "date":            ("gregoriandate", "timeperiod", "date", "gregoriaansedatum", "datum", "dag", "day"),
     "account_nr":      ("accountnumber", "accountnummer"),
     "account_name":    ("accountname", "accountnaam"),
     "currency":        ("currencycode", "valutacode", "currency", "valuta"),

@@ -8,6 +8,7 @@
 import { db } from '@/lib/db';
 import { deel, eur, getal } from '@/lib/format';
 import type { Scope } from '@/lib/scope';
+import { herkomstNaam, viaAdvertentie, PLATFORM_NAAM } from '@/lib/herkomst';
 
 const PERIODES = [
   { d: 7, naam: '7 dagen' },
@@ -57,27 +58,38 @@ export async function Overzicht({
   ]);
 
   const t = { impr: 0, clicks: 0, kosten: 0, conv: 0 };
+  // Kosten ook per platform, zodat Google en Bing in de herkomsttabel elk hun
+  // eigen prijs per lead krijgen.
+  const kostenPerPlatform = { google: 0, bing: 0 };
   for (const m of metrics.data ?? []) {
     t.impr += m.impressions ?? 0;
     t.clicks += m.clicks ?? 0;
     t.kosten += Number(m.cost ?? 0);
     t.conv += Number(m.conversions ?? 0);
+    const p = scope.platformVanAccount[m.ads_account_id as string] === 'microsoft' ? 'bing' : 'google';
+    kostenPerPlatform[p] += Number(m.cost ?? 0);
   }
   const rijenLeads = leads.data ?? [];
-  const gekwalificeerd = rijenLeads.filter((l) =>
+  // Kosten per lead en de trechter gaan alleen over leads die via advertenties
+  // binnenkwamen. Een lead die organisch of rechtstreeks kwam, drukt anders
+  // de prijs per lead terwijl er geen advertentiegeld aan te pas kwam.
+  const adsLeads = rijenLeads.filter((l) =>
+    viaAdvertentie(l.medium as string | null));
+  const gekwalificeerd = adsLeads.filter((l) =>
     ['qualified', 'offer_sent', 'won'].includes(l.status as string)).length;
-  const gewonnen = rijenLeads.filter((l) => l.status === 'won').length;
-  const cpl = deel(t.kosten, rijenLeads.length);
+  const gewonnen = adsLeads.filter((l) => l.status === 'won').length;
+  const cpl = deel(t.kosten, adsLeads.length);
+  const andereLeads = rijenLeads.length - adsLeads.length;
 
   // --- campagnes: alles wat bestaat plus alles wat geld kostte -------------
   const campInfo = new Map(
     (campagnes.data ?? []).map((c) => [`${c.ads_account_id}-${c.campaign_id}`, c]));
   type Rij = {
-    sleutel: string; naam: string; status: string; weg: boolean;
+    sleutel: string; naam: string; status: string; weg: boolean; bing: boolean;
     impr: number; clicks: number; kosten: number; conv: number;
   };
   const perCampagne = new Map<string, Rij>();
-  const pak = (sleutel: string, campaignId: number): Rij => {
+  const pak = (sleutel: string, accountId: string, campaignId: number): Rij => {
     let r = perCampagne.get(sleutel);
     if (!r) {
       const c = campInfo.get(sleutel);
@@ -85,6 +97,7 @@ export async function Overzicht({
       r = {
         sleutel, naam: (c?.name as string) ?? `campagne ${campaignId}`,
         status, weg: status === 'REMOVED' || !c,
+        bing: scope.platformVanAccount[accountId] === 'microsoft',
         impr: 0, clicks: 0, kosten: 0, conv: 0,
       };
       perCampagne.set(sleutel, r);
@@ -92,7 +105,7 @@ export async function Overzicht({
     return r;
   };
   for (const m of metrics.data ?? []) {
-    const r = pak(`${m.ads_account_id}-${m.campaign_id}`, m.campaign_id as number);
+    const r = pak(`${m.ads_account_id}-${m.campaign_id}`, m.ads_account_id as string, m.campaign_id as number);
     r.impr += m.impressions ?? 0;
     r.clicks += m.clicks ?? 0;
     r.kosten += Number(m.cost ?? 0);
@@ -101,7 +114,7 @@ export async function Overzicht({
   for (const c of campagnes.data ?? []) {
     if (c.status === 'REMOVED') continue;
     if (accounts.length && !accounts.includes(c.ads_account_id as string)) continue;
-    pak(`${c.ads_account_id}-${c.campaign_id}`, c.campaign_id as number);
+    pak(`${c.ads_account_id}-${c.campaign_id}`, c.ads_account_id as string, c.campaign_id as number);
   }
   const campagneRijen = [...perCampagne.values()]
     .sort((a, b) => b.kosten - a.kosten || b.impr - a.impr || a.naam.localeCompare(b.naam));
@@ -130,25 +143,37 @@ export async function Overzicht({
   // --- herkomst: Ads naast organisch, rechtstreeks en de rest --------------
   // Per bron: hoeveel sessies, hoeveel mensen contact zochten (WhatsApp,
   // telefoon, e-mail) en hoeveel het een lead met naam werd.
-  type Bron = { naam: string; sessies: number; pogingen: number; leads: number };
+  type Bron = {
+    naam: string; sessies: number; pogingen: number; leads: number;
+    /** Alleen voor Google Ads en Bing: wat het platform in deze periode kostte. */
+    kosten: number | null;
+  };
   const perBron = new Map<string, Bron>();
   const bron = (source: unknown, medium: unknown): Bron => {
     const k = herkomstNaam(source as string | null, medium as string | null);
     let b = perBron.get(k);
-    if (!b) { b = { naam: k, sessies: 0, pogingen: 0, leads: 0 }; perBron.set(k, b); }
+    if (!b) { b = { naam: k, sessies: 0, pogingen: 0, leads: 0, kosten: null }; perBron.set(k, b); }
     return b;
   };
   for (const r of sessies.data ?? []) bron(r.source, r.medium).sessies += 1;
   for (const r of pogingen.data ?? []) bron(r.source, r.medium).pogingen += 1;
   for (const r of rijenLeads) bron(r.source, r.medium).leads += 1;
+  // Een platform dat geld kostte staat er altijd bij, ook zonder gemeten bezoek.
+  if (kostenPerPlatform.google > 0 || perBron.has(PLATFORM_NAAM.google)) {
+    bron('google', 'cpc').kosten = kostenPerPlatform.google;
+  }
+  if (kostenPerPlatform.bing > 0 || perBron.has(PLATFORM_NAAM.bing)) {
+    bron('bing', 'cpc').kosten = kostenPerPlatform.bing;
+  }
   const bronRijen = [...perBron.values()]
     .sort((a, b) => b.leads - a.leads || b.pogingen - a.pogingen || b.sessies - a.sessies);
+  const toontKosten = bronRijen.some((r) => r.kosten != null);
   const sessiesTotaal = bronRijen.reduce((a, r) => a + r.sessies, 0);
 
   const trechter = [
     { etiket: 'Vertoningen', n: t.impr },
     { etiket: 'Klikken', n: t.clicks },
-    { etiket: 'Leads', n: rijenLeads.length },
+    { etiket: 'Leads', n: adsLeads.length },
     { etiket: 'Gekwalificeerd', n: gekwalificeerd },
     { etiket: 'Klanten', n: gewonnen },
   ];
@@ -177,9 +202,12 @@ export async function Overzicht({
               bij={t.impr ? `${((t.clicks / t.impr) * 100).toFixed(1)}% doorklik` : undefined} />
         <Post naam="Kosten per klik" cijfer={t.clicks ? eur(t.kosten / t.clicks) : '—'}
               wacht={!t.clicks} />
-        <Post naam="Leads" cijfer={getal(rijenLeads.length)} klem={rijenLeads.length > 0} />
+        <Post naam="Leads" cijfer={getal(rijenLeads.length)} klem={rijenLeads.length > 0}
+              bij={andereLeads > 0 ? `${getal(adsLeads.length)} via advertenties` : undefined} />
         <Post naam="Kosten per lead" cijfer={cpl == null ? '—' : eur(cpl)} wacht={cpl == null}
-              bij={cpl == null ? 'nog geen leads' : undefined} />
+              bij={cpl == null
+                ? (andereLeads > 0 ? 'nog geen leads via advertenties' : 'nog geen leads')
+                : (andereLeads > 0 ? 'alleen leads via advertenties' : undefined)} />
         <Post naam="Marge" cijfer="—" wacht bij="volgt na de offertes" />
         <Post naam="Winst na advertenties" cijfer="—" wacht bij="volgt na de offertes" />
       </div>
@@ -232,17 +260,32 @@ export async function Overzicht({
                   <th className="cijfer">Bezoeken</th>
                   <th className="cijfer">Contactpogingen</th>
                   <th className="cijfer">Leads</th>
+                  {toontKosten && <th className="cijfer">Kosten</th>}
+                  {toontKosten && <th className="cijfer">Per lead</th>}
                 </tr>
               </thead>
               <tbody>
-                {bronRijen.map((r) => (
-                  <tr key={r.naam}>
-                    <td><span className="hoofd">{r.naam}</span></td>
-                    <td className="cijfer">{r.sessies || <span className="leegwaarde">0</span>}</td>
-                    <td className="cijfer">{r.pogingen || <span className="leegwaarde">—</span>}</td>
-                    <td className="cijfer">{r.leads || <span className="leegwaarde">—</span>}</td>
-                  </tr>
-                ))}
+                {bronRijen.map((r) => {
+                  const perLead = r.kosten != null ? deel(r.kosten, r.leads) : null;
+                  return (
+                    <tr key={r.naam}>
+                      <td><span className="hoofd">{r.naam}</span></td>
+                      <td className="cijfer">{r.sessies || <span className="leegwaarde">0</span>}</td>
+                      <td className="cijfer">{r.pogingen || <span className="leegwaarde">—</span>}</td>
+                      <td className="cijfer">{r.leads || <span className="leegwaarde">—</span>}</td>
+                      {toontKosten && (
+                        <td className="cijfer">
+                          {r.kosten != null && r.kosten > 0 ? eur(r.kosten) : <span className="leegwaarde">—</span>}
+                        </td>
+                      )}
+                      {toontKosten && (
+                        <td className="cijfer">
+                          {perLead != null ? eur(perLead) : <span className="leegwaarde">—</span>}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -338,6 +381,7 @@ export async function Overzicht({
                     {!r.weg && r.status !== 'ENABLED' && (
                       <span className="onder">{r.status.toLowerCase()}</span>
                     )}
+                    {r.bing && <span className="onder">{PLATFORM_NAAM.bing}</span>}
                   </td>
                   <td className="cijfer">{getal(r.impr)}</td>
                   <td className="cijfer">{r.clicks || <span className="leegwaarde">0</span>}</td>
@@ -352,24 +396,6 @@ export async function Overzicht({
       </div>
     </>
   );
-}
-
-/** Bron en medium in gewone taal, op één hoop per soort verkeer. */
-function herkomstNaam(source: string | null, medium: string | null): string {
-  const m = (medium ?? '').toLowerCase();
-  const b = (source ?? '').toLowerCase();
-  if (m === 'cpc' || m === 'ppc' || m === 'paid_social') {
-    if (b === 'google' || !b) return 'Google Ads';
-    if (b === 'bing' || b === 'microsoft') return 'Microsoft Ads (Bing)';
-    return `Advertenties via ${b}`;
-  }
-  if (m === 'organic') return b === 'google' ? 'Google, onbetaald' : `${b}, onbetaald`;
-  if (m === 'ai') return `AI-zoekmachine (${b})`;
-  if (m === 'social') return `Sociaal (${b})`;
-  if (m === 'referral') return `Verwijzing van ${b}`;
-  if (m === 'email') return 'E-mail';
-  if (b === 'direct' || (!b && !m)) return b ? 'Rechtstreeks' : 'Onbekend';
-  return [b, m].filter(Boolean).join(' / ');
 }
 
 function Post({ naam, cijfer, bij, wacht, klem }: {

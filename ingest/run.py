@@ -254,22 +254,44 @@ def tbl_(name: str):
     return tbl(name)
 
 
-def cmd_microsoft(csv_path: str, account: str | None, name: str | None,
-                  client: str | None, date_format: str | None, dry_run: bool) -> int:
-    """Microsoft Advertising: campagne- of zoekwoordrapport (CSV) inlezen."""
-    from .connectors.microsoft_ads.csv_import import import_csv
+def cmd_microsoft(csv_path: str | None, account: str | None, name: str | None,
+                  client: str | None, date_format: str | None, dry_run: bool,
+                  dagen: int, toon_accounts: bool) -> int:
+    """Microsoft Advertising: dagcijfers via de API, of uit een CSV-rapport."""
+    from .core.config import ConfigError
 
+    if csv_path:
+        from .connectors.microsoft_ads.csv_import import import_csv
+        try:
+            counts = import_csv(csv_path, account_nr=account, account_name=name,
+                                client_slug=client, date_format=date_format, dry_run=dry_run)
+        except ValueError as exc:
+            print(f"\n  FOUT  {exc}\n")
+            return 1
+        if not dry_run:
+            print()
+            for k, v in counts.items():
+                print(f"  {k:<18} {v}")
+            print()
+        return 0
+
+    from .connectors.microsoft_ads import api
     try:
-        counts = import_csv(csv_path, account_nr=account, account_name=name,
-                            client_slug=client, date_format=date_format, dry_run=dry_run)
-    except ValueError as exc:
-        print(f"\n  FOUT  {exc}\n")
+        if toon_accounts:
+            print()
+            for a in api.accounts():
+                print(f"  {a['number']:<10} {a['id']:<12} {a['name']}  {a['status']}")
+            print()
+            return 0
+        uit = api.sync(dagen, dry_run=dry_run)
+    except ConfigError as exc:
+        print(f"\n  {exc}\n")
         return 1
-    if not dry_run:
-        print()
-        for k, v in counts.items():
-            print(f"  {k:<18} {v}")
-        print()
+    print()
+    for label, counts in uit.items():
+        detail = "  ".join(f"{k}: {v}" for k, v in counts.items())
+        print(f"  {label:<40} {detail}")
+    print()
     return 0
 
 
@@ -284,6 +306,22 @@ def cmd_nightly() -> int:
     sync_accounts()
     _print_counts("Structuur", sync_all())
     _print_counts("Metrics (rolling 14 dagen)", m.sync_recent())
+
+    # Bing, zelfde venster. Staat de API nog niet ingericht, dan zeggen we dat
+    # en gaat de rest gewoon door; de CSV-import blijft dan de weg.
+    from .core.config import ConfigError
+    from .connectors.microsoft_ads import api as ms
+    try:
+        uit = ms.sync(14)
+        print()
+        print("Microsoft Ads (rolling 14 dagen)")
+        for label, counts in uit.items():
+            detail = "  ".join(f"{k}: {v}" for k, v in counts.items())
+            print(f"  {label:<40} {detail}")
+    except ConfigError as exc:
+        print(f"\n  Microsoft Ads overgeslagen: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n  Microsoft Ads mislukt: {exc}")
 
     termen = z.sync_recent()
     print()
@@ -357,9 +395,15 @@ def main(argv: list[str] | None = None) -> int:
     p_cv.add_argument("--retry", action="store_true",
                       help="mislukte uploads opnieuw in de wachtrij zetten")
 
-    p_ms = sub.add_parser("microsoft", help="Microsoft Advertising (Bing): CSV-rapport inlezen")
-    p_ms.add_argument("--csv", required=True, metavar="BESTAND",
-                      help="campagne- of zoekwoordrapport per dag, geëxporteerd als CSV")
+    p_ms = sub.add_parser("microsoft",
+                          help="Microsoft Advertising (Bing): dagcijfers via de API of uit een CSV")
+    p_ms.add_argument("--csv", metavar="BESTAND",
+                      help="campagne- of zoekwoordrapport per dag, geëxporteerd als CSV; "
+                           "zonder --csv gaat het via de API")
+    p_ms.add_argument("--dagen", type=int, default=14,
+                      help="hoeveel dagen terug via de API (standaard 14)")
+    p_ms.add_argument("--accounts", action="store_true",
+                      help="alleen tonen welke accounts de API onder de klant ziet")
     p_ms.add_argument("--account", metavar="NUMMER",
                       help="Microsoft-accountnummer (X1234567); alleen nodig als het niet in de CSV staat")
     p_ms.add_argument("--name", help="naam voor het account, alleen bij de eerste import")
@@ -393,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_conversions(args.dry_run, args.report, args.retry)
     if args.cmd == "microsoft":
         return cmd_microsoft(args.csv, args.account, args.name, args.client,
-                             args.date_format, args.dry_run)
+                             args.date_format, args.dry_run, args.dagen, args.accounts)
     if args.cmd == "nightly":
         return cmd_nightly()
     return 2

@@ -21,7 +21,7 @@ Het stappenplan met wie-doet-wat is [`docs/08-stappenplan.md`](docs/08-stappenpl
 db/migrations/     SQL-migraties, in volgorde draaien
 ingest/            Python — nachtelijke sync, draait op Railway
   core/            config, supabase-client, sync_run, retry, upsert
-  connectors/      google_ads, ga4, crm, mail, microsoft_ads (CSV)
+  connectors/      google_ads, ga4, crm, mail, microsoft_ads (API + CSV)
   export/          offline conversies terug naar Google Ads
 collect/           het first-party /api/collect endpoint (Vercel function)
 app/               Next.js dashboard + klantportaal
@@ -59,21 +59,41 @@ het schema `mi`**, niet in `public`. Gevolgen om te weten:
 
 ## Microsoft Advertising (Bing)
 
-Bing draait als test naast Google Ads. Klikken en leads komen vanzelf goed
-binnen (de collector herkent de `msclkid` als `bing / cpc`). De kosten niet:
-die haal je wekelijks als CSV uit Microsoft Advertising (Rapporten > Campagne,
-per dag) en leest ze in:
+Bing draait naast Google Ads bij Boers & Breuer (account G1459T4P, bij
+Microsoft "Stijn veentjer" genoemd) en Rotterdamse Bouwbedrijf (G145HG9Z).
+Welk account bij welke klant hoort staat in `db/seed/011_microsoft_accounts.sql`,
+niet in de accountnaam.
+
+**Klikken en leads** komen vanzelf goed binnen: alle campagnes hebben
+`utm_source=bing&utm_medium=cpc` als URL-suffix en autotagging van de
+`msclkid` staat aan, dus de collector zet ze als `bing / cpc`. Op de leadpagina
+filter je op *Bing* (of *Google Ads*, of *niet via advertenties*) en op periode;
+de kop telt dan precies wat je die klant factureert.
+
+**Kosten** komen via de Reporting API, elke nacht mee in `nightly`:
+
+```bash
+python -m ingest.run microsoft --accounts      # welke accounts de API ziet
+python -m ingest.run microsoft --dagen 30      # dagcijfers ophalen en inlezen
+```
+
+Daarvoor moet `CP\GoogleAds\microsoft-ads.yaml` compleet zijn: `developer_token`
+en `customer_id` staan er al; `client_id` en `client_secret` komen uit een
+app-registratie op portal.azure.com (redirect-URI `http://localhost:8080`), en
+`refresh_token` vul je daarna één keer met `python bing_auth.py` in die map.
+Zolang dat niet gedaan is, slaat `nightly` Bing over met een melding, en blijft
+de CSV-route werken (Rapporten > Campagne, per dag, exporteren als CSV):
 
 ```bash
 python -m ingest.run microsoft --csv rapport.csv --dry-run   # eerst kijken
-python -m ingest.run microsoft --csv rapport.csv --client boers-breuer
+python -m ingest.run microsoft --csv rapport.csv
 ```
 
-Het Microsoft-account wordt bij de eerste import aangemaakt als rij in
-`ads_account` met `platform = 'microsoft'` (migratie 016); daarna gaan campagnes
-en dagcijfers in dezelfde tabellen als Google. De import is idempotent, en
-Microsoft bewaart rapporten jaren, dus een gemiste week haal je later gewoon op.
-Een API-connector komt pas als Bing na de test blijft.
+Beide routes schrijven in dezelfde tabellen als Google (`ads_account` met
+`platform = 'microsoft'`, migratie 016), zijn idempotent en overschrijven; een
+gemiste week haal je dus later gewoon op. In het overzicht staat Bing als eigen
+regel onder "Waar bezoekers vandaan komen", met kosten en prijs per lead, en
+Bing-campagnes zijn in de campagnetabel als zodanig gelabeld.
 
 ## Uitgangspunten
 
