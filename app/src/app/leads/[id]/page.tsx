@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { config, db } from '@/lib/db';
 import { datum, klok, tijdstip } from '@/lib/format';
 import { Setup } from '@/components/Setup';
+import { koppelBezoeker, ontkoppelBezoeker } from './acties';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +39,48 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
           .eq('click_id', lead.click_id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
+
+  // Dezelfde persoon, een andere aanvraag: zelfde e-mail of telefoon bij
+  // dezelfde klant. Twee apparaten, twee bezoeker-id's, één mens.
+  const hashes = [lead.email_sha256, lead.phone_sha256].filter(Boolean) as string[];
+  const orFilter = [
+    lead.email_sha256 ? `email_sha256.eq.${lead.email_sha256}` : null,
+    lead.phone_sha256 ? `phone_sha256.eq.${lead.phone_sha256}` : null,
+  ].filter(Boolean).join(',');
+  const gemaakt = lead.created_at as string;
+  const veertienDagenEerder = new Date(new Date(gemaakt).getTime() - 14 * 24 * 3600 * 1000).toISOString();
+  const handmatig = new Set(
+    (identiteiten.data ?? [])
+      .filter((i) => i.kind === 'visitor_id' && i.method === 'manual_stitch')
+      .map((i) => i.value as string));
+
+  const [dezelfde, kandidaten] = await Promise.all([
+    hashes.length
+      ? s.from('lead').select('id,public_ref,name,subject,created_at,campaign,source,status')
+          .eq('client_id', lead.client_id).neq('id', id).is('deleted_at', null)
+          .or(orFilter).order('created_at', { ascending: false }).limit(10)
+      : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    // Anonieme contactpogingen bij deze klant in de twee weken vóór de
+    // aanvraag, van een andere bezoeker: was dat misschien deze persoon?
+    s.from('lead_event')
+      .select('id,visitor_id,event_type,occurred_at,page_path,source,medium,campaign,click_id')
+      .eq('client_id', lead.client_id).is('lead_id', null)
+      .in('event_type', ['whatsapp_click', 'phone_click', 'email_click'])
+      .gte('occurred_at', veertienDagenEerder).lte('occurred_at', gemaakt)
+      .neq('visitor_id', (lead.first_visitor_id as string) ?? '00000000-0000-0000-0000-000000000000')
+      .order('occurred_at', { ascending: false }).limit(60),
+  ]);
+
+  type Kandidaat = { visitor: string; events: NonNullable<typeof kandidaten.data> };
+  const perKandidaat = new Map<string, Kandidaat>();
+  for (const e of kandidaten.data ?? []) {
+    const v = e.visitor_id as string;
+    if (!v) continue;
+    const k = perKandidaat.get(v) ?? { visitor: v, events: [] };
+    k.events.push(e);
+    perKandidaat.set(v, k);
+  }
+  const kandidaatRijen = [...perKandidaat.values()].slice(0, 8);
 
   const typeNaam = new Map((types.data ?? []).map((t) => [t.code as string, t.label as string]));
   const rijen = events.data ?? [];
@@ -294,6 +337,82 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
               </>
             )}
           </div>
+
+          {((dezelfde.data ?? []).length > 0 || kandidaatRijen.length > 0 || handmatig.size > 0) && (
+            <div className="blok">
+              <h3>Dezelfde persoon?</h3>
+
+              {(dezelfde.data ?? []).length > 0 && (
+                <>
+                  <p className="uitleg" style={{ margin: '0 0 10px', fontSize: 12.5 }}>
+                    Eerdere aanvragen met hetzelfde e-mailadres of telefoonnummer.
+                  </p>
+                  <dl className="lijst">
+                    {(dezelfde.data ?? []).map((l) => (
+                      <div key={l.id as string} style={{ display: 'contents' }}>
+                        <dt>{datum(l.created_at as string)}</dt>
+                        <dd>
+                          <a href={`/leads/${l.id}`}>nr {l.public_ref as number}</a>
+                          {l.subject ? ` — ${l.subject as string}` : ''}
+                          {(l.campaign || l.source) && (
+                            <span className="onder">{(l.campaign as string) || (l.source as string)}</span>
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              )}
+
+              {(kandidaatRijen.length > 0 || handmatig.size > 0) && (
+                <>
+                  <p className="uitleg" style={{ margin: '14px 0 10px', fontSize: 12.5 }}>
+                    Anonieme contactpogingen bij {klant?.data?.name ?? 'deze klant'} in de
+                    twee weken vóór de aanvraag, vanaf een ander apparaat of een andere
+                    browser. Herken je er een — bijvoorbeeld uit je WhatsApp — koppel hem
+                    dan; het hele voortraject hangt dan aan deze lead. Terugdraaien kan.
+                  </p>
+                  {kandidaatRijen.map((k) => {
+                    const eerste = k.events[k.events.length - 1];
+                    const soorten = [...new Set(k.events.map((e) =>
+                      typeNaam.get(e.event_type as string) ?? (e.event_type as string)))];
+                    return (
+                      <form action={koppelBezoeker} className="kandidaat" key={k.visitor}>
+                        <input type="hidden" name="lead_id" value={id} />
+                        <input type="hidden" name="visitor_id" value={k.visitor} />
+                        <div>
+                          <span className="hoofd">
+                            {tijdstip(eerste.occurred_at as string)}
+                            {k.events.length > 1 ? ` · ${k.events.length}×` : ''}
+                          </span>
+                          <span className="onder">
+                            {soorten.join(', ')}
+                            {eerste.page_path ? ` op ${eerste.page_path as string}` : ''}
+                            {eerste.campaign
+                              ? ` · ${eerste.campaign as string}`
+                              : eerste.source ? ` · ${eerste.source as string}` : ''}
+                            {eerste.click_id ? ' · uit een advertentie' : ''}
+                          </span>
+                        </div>
+                        <button type="submit" className="knop">Koppel</button>
+                      </form>
+                    );
+                  })}
+                  {[...handmatig].map((v) => (
+                    <form action={ontkoppelBezoeker} className="kandidaat gekoppeld" key={v}>
+                      <input type="hidden" name="lead_id" value={id} />
+                      <input type="hidden" name="visitor_id" value={v} />
+                      <div>
+                        <span className="hoofd">Handmatig gekoppelde bezoeker</span>
+                        <span className="onder">{v.slice(0, 8)}… — de events staan hierboven in de tijdlijn</span>
+                      </div>
+                      <button type="submit" className="knop stil">Ontkoppel</button>
+                    </form>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
         </aside>
       </div>
     </>
@@ -318,6 +437,7 @@ function herkenning(methode: string): string {
   switch (methode) {
     case 'exact_lead_id': return 'Dezelfde inzending';
     case 'visitor_stitch': return 'Zelfde browser';
+    case 'manual_stitch': return 'Handmatig gekoppeld';
     case 'email_match': return 'Zelfde e-mailadres';
     case 'phone_match': return 'Zelfde telefoonnummer';
     case 'ga_client_bridge': return 'Zelfde Analytics-bezoeker';
