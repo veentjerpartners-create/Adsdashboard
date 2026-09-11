@@ -10,6 +10,9 @@ Startpunt voor alle sync-taken.
     python -m ingest.run clicks                   0.10 gclid -> campagne (heeft haast)
     python -m ingest.run clicks --report          hoe ver de klik-historie is
     python -m ingest.run spend --days 30          0.9  controle tegen Google Ads
+    python -m ingest.run conversions              6    offline conversies naar Google Ads
+    python -m ingest.run conversions --dry-run    alleen tonen wat er zou gaan
+    python -m ingest.run conversions --report     wat er de laatste tijd gebeurde
     python -m ingest.run nightly                  alles wat 's nachts moet
 
 Elke taak schrijft zijn eigen regel in mi.sync_run, dus je kunt achteraf altijd
@@ -214,6 +217,41 @@ def cmd_spend(days: int) -> int:
     return 0
 
 
+def cmd_conversions(dry_run: bool, report_only: bool, retry: bool) -> int:
+    """
+    Stap 6 — offline conversies terug naar Google Ads.
+
+    Zie ingest/export/conversions.py voor het waarom. Kort: de conversietag op
+    de site ziet alleen bezoekers die cookies accepteren; wij zien iedereen
+    met een click-ID, dus sturen we die zelf terug.
+    """
+    from .export import conversions as cv
+
+    if retry:
+        res = (
+            tbl_("conversion_upload")
+            .update({"status": "pending"})
+            .eq("status", "failed").lt("attempts", 5)
+            .execute()
+        )
+        print(f"\n  {len(res.data or [])} mislukte uploads opnieuw in de wachtrij gezet")
+
+    if not report_only:
+        result = cv.run_all(dry_run=dry_run)
+        print()
+        print("Offline conversies" + ("  (dry-run, niets verstuurd)" if dry_run else ""))
+        for label, counts in result.items():
+            detail = "  ".join(f"{k}: {v}" for k, v in counts.items())
+            print(f"  {label:<32} {detail}")
+    print(cv.report())
+    return 0
+
+
+def tbl_(name: str):
+    from .core.db import tbl
+    return tbl(name)
+
+
 def cmd_nightly() -> int:
     """Wat de scheduler straks elke nacht doet. Nu handmatig aan te roepen."""
     from .connectors.google_ads import clicks as c
@@ -239,6 +277,20 @@ def cmd_nightly() -> int:
     print("Klikken (gclid -> campagne)")
     for label, n in result.items():
         print(f"  {label:<32} {n}")
+
+    # En terug de andere kant op: wat er vandaag aan contact uit Ads kwam,
+    # als offline conversie naar Google. Eigen try, want een afgewezen upload
+    # mag de rest van de nacht niet als mislukt markeren.
+    from .export import conversions as cv
+    try:
+        uploads = cv.run_all()
+        print()
+        print("Offline conversies naar Google Ads")
+        for label, counts in uploads.items():
+            detail = "  ".join(f"{k}: {v}" for k, v in counts.items())
+            print(f"  {label:<32} {detail}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n  offline conversies mislukt: {exc}")
     print()
     return 0
 
@@ -276,6 +328,14 @@ def main(argv: list[str] | None = None) -> int:
     p_cl.add_argument("--report", action="store_true",
                       help="niets ophalen, alleen tonen hoe ver we zijn")
 
+    p_cv = sub.add_parser("conversions", help="offline conversies naar Google Ads")
+    p_cv.add_argument("--dry-run", action="store_true",
+                      help="niets aanmaken of versturen, alleen tonen")
+    p_cv.add_argument("--report", action="store_true",
+                      help="alleen tonen wat er de laatste tijd gebeurde")
+    p_cv.add_argument("--retry", action="store_true",
+                      help="mislukte uploads opnieuw in de wachtrij zetten")
+
     sub.add_parser("nightly", help="alles wat 's nachts moet")
 
     args = parser.parse_args(argv)
@@ -295,6 +355,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_clicks(args.report)
     if args.cmd == "spend":
         return cmd_spend(args.days)
+    if args.cmd == "conversions":
+        return cmd_conversions(args.dry_run, args.report, args.retry)
     if args.cmd == "nightly":
         return cmd_nightly()
     return 2
