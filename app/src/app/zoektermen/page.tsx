@@ -3,6 +3,8 @@ import { scope } from '@/lib/scope';
 import { eur, getal, datum } from '@/lib/format';
 import { Setup } from '@/components/Setup';
 import { zoekwoorden } from '@/lib/zoekwoorden';
+import { zoektermen } from '@/lib/zoektermen';
+import { TermenTabel } from '@/components/Zoektermen';
 import { ZoekwoordenPerKlant } from '@/components/Zoekwoorden';
 
 export const dynamic = 'force-dynamic';
@@ -104,56 +106,16 @@ export default async function Zoektermen({ searchParams }: { searchParams: Promi
     );
   }
 
-  const tq = (van: number, tot: number) => {
-    let q = s.from('ads_search_term_daily')
-      .select('search_term,keyword_text,match_type,term_status,impressions,clicks,cost,campaign_id,ads_account_id')
-      .gte('date', start).lte('date', eind);
-    if (sc.accountIds.length) q = q.in('ads_account_id', sc.accountIds);
-    return q.order('date').order('search_term').range(van, tot);
-  };
   const mq = (van: number, tot: number) => {
     let q = s.from('v_campaign_daily').select('cost').gte('date', start).lte('date', eind);
     if (sc.accountIds.length) q = q.in('ads_account_id', sc.accountIds);
     return q.range(van, tot);
   };
-
-  const [termen, metrics, campagnes, accounts] = await Promise.all([
-    allesOphalen(tq), allesOphalen(mq), s.from('ads_campaign').select('campaign_id,name'),
-    s.from('ads_account').select('id,client_id'),
-  ]);
-  const klantVanAccount = new Map(
-    (accounts.data ?? []).map((a) => [a.id as string, a.client_id as string]));
-
-  const campNaam = new Map(
-    (campagnes.data ?? []).map((c) => [c.campaign_id as number, c.name as string]));
-
-  type Rij = {
-    clientId: string; term: string; kw: string | null; match: string | null;
-    status: string | null; camp: string; impr: number; clicks: number; kosten: number;
-  };
-  // Per klant apart tellen: dezelfde zoekterm bij twee klanten zijn twee regels.
-  const per = new Map<string, Rij>();
-  for (const r of termen) {
-    const clientId = klantVanAccount.get(r.ads_account_id as string) ?? '';
-    const k = `${clientId}|${r.search_term}`;
-    const v = per.get(k) ?? {
-      clientId, term: r.search_term as string,
-      kw: r.keyword_text as string, match: r.match_type as string,
-      status: r.term_status as string,
-      camp: campNaam.get(r.campaign_id as number) ?? '—',
-      impr: 0, clicks: 0, kosten: 0,
-    };
-    v.impr += r.impressions ?? 0;
-    v.clicks += r.clicks ?? 0;
-    v.kosten += Number(r.cost ?? 0);
-    per.set(k, v);
-  }
-  const rijen = [...per.values()]
-    .sort((a, b) => b.kosten - a.kosten || b.clicks - a.clicks || b.impr - a.impr);
-
+  const [rijen, metrics] = await Promise.all([zoektermen(sc, start, eind), allesOphalen(mq)]);
   const totaalSpend = metrics.reduce((a, r) => a + Number(r.cost ?? 0), 0);
-  const termSpend = rijen.reduce((a, r) => a + r.kosten, 0);
-  const metKosten = rijen.filter((r) => r.kosten > 0);
+  const termSpend = rijen.reduce((a, r) => a + (r.term ? r.kosten : 0), 0);
+  const restSpend = rijen.reduce((a, r) => a + (r.term ? 0 : r.kosten), 0);
+  const metKosten = rijen.filter((r) => r.term && r.kosten > 0);
 
   return (
     <>
@@ -183,11 +145,15 @@ export default async function Zoektermen({ searchParams }: { searchParams: Promi
       ) : (
         <>
           <p className="uitleg">
-            {termSpend < totaalSpend && (
+            Van {eur(totaalSpend)} totale kosten is {eur(termSpend)} aan een zoekterm
+            toe te wijzen.
+            {restSpend > 0 && (
               <>
-                Van {eur(totaalSpend)} totale kosten is {eur(termSpend)} aan een
-                zoekterm toe te wijzen. Het verschil zit in termen die Google
-                niet toont omdat ze te zeldzaam waren.
+                {' '}De overige {eur(restSpend)} zit in klikken waarvoor Google de
+                zoekterm (nog) niet vrijgeeft — dat gebeurt met uren tot een dag
+                vertraging, en zeldzame termen blijven weg. Die klikken staan als
+                <i> nog niet gerapporteerd</i> bij hun zoekwoord, zodat het totaal
+                klopt met wat er betaald is.
               </>
             )}
           </p>
@@ -199,7 +165,9 @@ export default async function Zoektermen({ searchParams }: { searchParams: Promi
                 <h2 className="klantkop">
                   {klant.name}
                   <span className="meta">
-                    {getal(rijen.length)} zoektermen · {eur(rijen.reduce((a, r) => a + r.kosten, 0))}
+                    {getal(rijen.filter((r) => r.term).length)} zoektermen ·{' '}
+                    {getal(rijen.reduce((a, r) => a + r.clicks, 0))} klikken ·{' '}
+                    {eur(rijen.reduce((a, r) => a + r.kosten, 0))}
                   </span>
                 </h2>
                 <TermenTabel rijen={rijen} />
@@ -211,45 +179,3 @@ export default async function Zoektermen({ searchParams }: { searchParams: Promi
   );
 }
 
-function TermenTabel({ rijen }: { rijen: {
-  term: string; kw: string | null; match: string | null; status: string | null;
-  camp: string; impr: number; clicks: number; kosten: number;
-}[] }) {
-  return (
-    <div className="tabelrol">
-      <table>
-        <thead>
-          <tr>
-            <th>Wat er getypt werd</th>
-            <th>Wat je daarvoor inkocht</th>
-            <th>Campagne</th>
-            <th className="cijfer">Vertoningen</th>
-            <th className="cijfer">Klikken</th>
-            <th className="cijfer">Kosten</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rijen.map((r) => (
-            <tr key={r.term}>
-              <td>
-                <span className="hoofd">{r.term}</span>
-                {r.status === 'EXCLUDED' && <span className="onder">uitgesloten</span>}
-                {r.status === 'ADDED' && <span className="onder">staat als zoekwoord in het account</span>}
-              </td>
-              <td>
-                {r.kw ?? <span className="leegwaarde">onbekend</span>}
-                {r.match && <span className="onder">{r.match.toLowerCase()}</span>}
-              </td>
-              <td>{r.camp}</td>
-              <td className="cijfer">{getal(r.impr)}</td>
-              <td className="cijfer">{r.clicks || <span className="leegwaarde">0</span>}</td>
-              <td className="cijfer">
-                {r.kosten > 0 ? eur(r.kosten) : <span className="leegwaarde">—</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}

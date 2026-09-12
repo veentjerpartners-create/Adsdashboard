@@ -9,6 +9,8 @@ import { db } from '@/lib/db';
 import { deel, eur, getal } from '@/lib/format';
 import type { Scope } from '@/lib/scope';
 import { herkomstNaam, viaAdvertentie, PLATFORM_NAAM } from '@/lib/herkomst';
+import { zoektermen } from '@/lib/zoektermen';
+import { TermenTabel } from '@/components/Zoektermen';
 
 const PERIODES = [
   { d: 7, naam: '7 dagen' },
@@ -37,13 +39,8 @@ export async function Overzicht({
     .select('id,client_id,source,medium,event_type')
     .in('event_type', ['whatsapp_click', 'phone_click', 'email_click'])
     .gte('occurred_at', `${start}T00:00:00Z`);
-  let tq = s.from('ads_search_term_daily')
-    .select('search_term,keyword_text,match_type,term_status,impressions,clicks,cost,campaign_id')
-    .gte('date', start).lte('date', eind);
-
   if (accounts.length) {
     mq = mq.in('ads_account_id', accounts);
-    tq = tq.in('ads_account_id', accounts);
   }
   if (scope.actief) {
     lq = lq.eq('client_id', scope.actief.id);
@@ -52,7 +49,7 @@ export async function Overzicht({
   }
 
   const [metrics, leads, termen, campagnes, sessies, pogingen] = await Promise.all([
-    mq, lq, tq,
+    mq, lq, zoektermen(scope, start, eind),
     s.from('ads_campaign').select('ads_account_id,campaign_id,name,status'),
     sq, cq,
   ]);
@@ -120,25 +117,12 @@ export async function Overzicht({
     .sort((a, b) => b.kosten - a.kosten || b.impr - a.impr || a.naam.localeCompare(b.naam));
 
   // --- zoektermen: waar het geld heen ging --------------------------------
-  type Term = {
-    term: string; kw: string | null; match: string | null; status: string | null;
-    impr: number; clicks: number; kosten: number;
-  };
-  const perTerm = new Map<string, Term>();
-  for (const r of termen.data ?? []) {
-    const k = r.search_term as string;
-    const v = perTerm.get(k) ?? {
-      term: k, kw: r.keyword_text as string, match: r.match_type as string,
-      status: r.term_status as string, impr: 0, clicks: 0, kosten: 0,
-    };
-    v.impr += r.impressions ?? 0;
-    v.clicks += r.clicks ?? 0;
-    v.kosten += Number(r.cost ?? 0);
-    perTerm.set(k, v);
-  }
-  const termRijen = [...perTerm.values()]
-    .sort((a, b) => b.kosten - a.kosten || b.clicks - a.clicks || b.impr - a.impr);
-  const termKosten = termRijen.reduce((a, r) => a + r.kosten, 0);
+  // Gedeelde berekening met de pagina "Waar je voor betaalt", inclusief de
+  // restregels voor klikken waarvan Google de zoekterm nog niet vrijgaf.
+  const termKosten = termen.reduce((a, r) => a + (r.term ? r.kosten : 0), 0);
+  const perKlantTermen = (scope.actief ? [scope.actief] : scope.klanten)
+    .map((k) => ({ klant: k, rijen: termen.filter((r) => r.clientId === k.id) }))
+    .filter((g) => g.rijen.length > 0);
 
   // --- herkomst: Ads naast organisch, rechtstreeks en de rest --------------
   // Per bron: hoeveel sessies, hoeveel mensen contact zochten (WhatsApp,
@@ -300,7 +284,7 @@ export async function Overzicht({
           </span>
         )}
       </h2>
-      {termRijen.length === 0 ? (
+      {termen.length === 0 ? (
         <div className="niets">
           <strong>Nog geen zoektermen</strong>
           Google toont een zoekterm pas als hij vaak genoeg voorkwam, om te
@@ -311,43 +295,33 @@ export async function Overzicht({
         <>
           <p className="uitleg">
             Wat mensen echt intypten, en welk ingekocht zoekwoord daarop matchte.
-            Google laat zeldzame termen weg, dus dit telt niet op tot het
-            campagnetotaal.
+            Klikken waarvoor Google de zoekterm nog niet vrijgaf staan als
+            <i> nog niet gerapporteerd</i> bij hun zoekwoord, zodat het totaal
+            klopt met de kosten. De volledige lijst staat onder{' '}
+            <a href={`/zoektermen?d=${dagen}${scope.actief ? `&klant=${scope.actief.slug}` : ''}`}>
+              Waar je voor betaalt
+            </a>.
           </p>
-          <div className="tabelrol">
-            <table>
-              <thead>
-                <tr>
-                  <th>Zoekterm</th>
-                  <th>Matchte op</th>
-                  <th className="cijfer">Vertoningen</th>
-                  <th className="cijfer">Klikken</th>
-                  <th className="cijfer">Kosten</th>
-                </tr>
-              </thead>
-              <tbody>
-                {termRijen.slice(0, 25).map((r) => (
-                  <tr key={r.term}>
-                    <td>
-                      <span className="hoofd">{r.term}</span>
-                      {r.status === 'EXCLUDED' && (
-                        <span className="onder">uitgesloten</span>
-                      )}
-                    </td>
-                    <td>
-                      {r.kw ?? <span className="leegwaarde">onbekend</span>}
-                      {r.match && <span className="onder">{r.match.toLowerCase()}</span>}
-                    </td>
-                    <td className="cijfer">{getal(r.impr)}</td>
-                    <td className="cijfer">{r.clicks || <span className="leegwaarde">0</span>}</td>
-                    <td className="cijfer">
-                      {r.kosten > 0 ? eur(r.kosten) : <span className="leegwaarde">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {perKlantTermen.map(({ klant, rijen }) => (
+            <section key={klant.id} className="blok">
+              {!scope.actief && (
+                <h2 className="klantkop">
+                  {klant.name}
+                  <span className="meta">
+                    {getal(rijen.reduce((a, r) => a + r.clicks, 0))} klikken ·{' '}
+                    {eur(rijen.reduce((a, r) => a + r.kosten, 0))}
+                  </span>
+                </h2>
+              )}
+              <TermenTabel rijen={rijen.slice(0, 25)} campagne={false}
+                           totaal={rijen.length <= 25} />
+              {rijen.length > 25 && (
+                <p className="uitleg">
+                  De {getal(rijen.length - 25)} overige regels staan onder Waar je voor betaalt.
+                </p>
+              )}
+            </section>
+          ))}
         </>
       )}
 
