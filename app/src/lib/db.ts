@@ -78,7 +78,11 @@ export function db() {
  * dag verschil.
  */
 export function periode(sp: Record<string, string | string[] | undefined>) {
-  const dagen = Number(Array.isArray(sp.d) ? sp.d[0] : sp.d) || 30;
+  const d = Array.isArray(sp.d) ? sp.d[0] : sp.d;
+  // d=alles: de hele historie. dagen wordt dan 0, zodat geen van de vaste
+  // periodes als actief oplicht.
+  const alles = d === 'alles';
+  const dagen = alles ? 0 : Number(d) || 30;
   const nu = new Date(
     new Date().toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }));
   const eind = new Date(Date.UTC(nu.getFullYear(), nu.getMonth(), nu.getDate()));
@@ -86,7 +90,26 @@ export function periode(sp: Record<string, string | string[] | undefined>) {
   start.setUTCDate(start.getUTCDate() - (dagen - 1));
   return {
     dagen,
-    start: start.toISOString().slice(0, 10),
+    alles,
+    start: alles ? '2000-01-01' : start.toISOString().slice(0, 10),
     eind: eind.toISOString().slice(0, 10),
   };
+}
+
+/**
+ * PostgREST geeft maximaal 1000 rijen per verzoek. Een jaar zoekwoord- of
+ * zoektermdagen is meer dan dat, dus: in blokken ophalen tot een blok niet
+ * vol is. Alleen voor queries waar de hele set nodig is om te tellen.
+ */
+export async function allesOphalen<T>(
+  maak: (van: number, tot: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const stap = 1000;
+  const uit: T[] = [];
+  for (let van = 0; ; van += stap) {
+    const { data, error } = await maak(van, van + stap - 1);
+    if (error) throw error;
+    uit.push(...(data ?? []));
+    if (!data || data.length < stap) return uit;
+  }
 }
