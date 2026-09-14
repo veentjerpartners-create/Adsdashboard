@@ -157,6 +157,11 @@ a { color: inherit; }
 .zin .stil { color: var(--tekst-3); }
 .periode.strak { margin-bottom: 8px; }
 
+/* de live-indicator naast de zin: klopt hij nog met de database */
+.live { color: var(--tekst-3); font-size: 12.5px; display: inline-flex; align-items: center; margin-bottom: 22px; }
+.live .stip { animation: klop 2.4s ease-in-out infinite; }
+@keyframes klop { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
 .periode { color: var(--tekst-3); font-size: 13.5px; margin: 0 0 30px; }
 .periode a { color: var(--tekst-2); text-decoration: none; border-bottom: 1px solid var(--lijn-op); }
 .periode a:hover { color: var(--amber); border-bottom-color: var(--amber); }
