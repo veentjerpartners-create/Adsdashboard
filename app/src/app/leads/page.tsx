@@ -4,6 +4,7 @@ import { tijdstip } from '@/lib/format';
 import { adsPlatform, herkomstNaam } from '@/lib/herkomst';
 import { Setup } from '@/components/Setup';
 import { LiveRefresh } from '@/components/LiveRefresh';
+import { AdsSyncKnop } from '@/components/AdsSyncKnop';
 
 export const dynamic = 'force-dynamic';
 
@@ -133,6 +134,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
       </h1>
 
       <LiveRefresh seconden={20} />
+      <AdsSyncKnop />
 
       <p className="periode strak">
         <a href={link({ status: '' })} aria-current={!gekozen ? 'true' : undefined}>alles</a>
