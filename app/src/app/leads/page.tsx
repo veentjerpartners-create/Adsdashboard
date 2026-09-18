@@ -215,7 +215,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
                     <span className="onder">nr {l.public_ref as number}</span>
                   </td>
                   <td>
-                    <a className="hoofd" href={`/leads/${l.id}`}>
+                    <a href={`/leads/${l.id}`}>
                       {(l.name as string) || 'naam onbekend'}
                     </a>
                     {l.needs_review ? (
@@ -227,7 +227,11 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
                     )}
                   </td>
                   <td>
-                    {(l.subject as string) || <span className="leegwaarde">—</span>}
+                    {l.subject ? (
+                      <span className="hoofd">{l.subject as string}</span>
+                    ) : (
+                      <span className="leegwaarde">—</span>
+                    )}
                     {l.city && <span className="onder">{l.city as string}</span>}
                   </td>
                   <td>
