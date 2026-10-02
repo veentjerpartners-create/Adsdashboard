@@ -1,6 +1,6 @@
 import { config, db } from '@/lib/db';
 import { scope } from '@/lib/scope';
-import { tijdstip } from '@/lib/format';
+import { datum, tijdstip } from '@/lib/format';
 import { adsPlatform, herkomstNaam } from '@/lib/herkomst';
 import { Setup } from '@/components/Setup';
 import { LiveRefresh } from '@/components/LiveRefresh';
@@ -54,6 +54,9 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
   const klantSlug = een(sp.klant);
   const via = VIA.some((v) => v.code === een(sp.via)) ? een(sp.via) : '';
   const dagen = PERIODES.some((p) => p.d === Number(een(sp.d))) ? Number(een(sp.d)) : 0;
+  // Voor screenshots naar buiten (een post, een pitch): alleen datum, soort
+  // en kanaal. Geen namen, contactgegevens, plaatsen, klanten of campagnes.
+  const anoniem = een(sp.anoniem) === '1';
   const s = db();
   const sc = await scope(klantSlug || undefined);
 
@@ -104,7 +107,7 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
   const link = (wijzig: Record<string, string | number>) => {
     const p = new URLSearchParams();
     const alles: Record<string, string | number> = {
-      status: gekozen, klant: klantSlug, via, d: dagen, ...wijzig,
+      status: gekozen, klant: klantSlug, via, d: dagen, anoniem: anoniem ? 1 : '', ...wijzig,
     };
     for (const [k, v] of Object.entries(alles)) if (v) p.set(k, String(v));
     const qs = p.toString();
@@ -118,13 +121,13 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
     <>
       <h1 className="zin">
         {rijen.length === 0 ? (
-          <>Nog geen <b>leads</b>{sc.actief ? ` bij ${sc.actief.name}` : ''}.</>
+          <>Nog geen <b>leads</b>{sc.actief && !anoniem ? ` bij ${sc.actief.name}` : ''}.</>
         ) : (
           <>
             {rijen.length === 200 ? 'De laatste ' : ''}
             <b>{rijen.length}</b> {rijen.length === 1 ? 'lead' : 'leads'}
             {via && ` ${VIA.find((v) => v.code === via)?.naam}`}
-            {sc.actief ? ` bij ${sc.actief.name}` : ''}
+            {sc.actief && !anoniem ? ` bij ${sc.actief.name}` : ''}
             {dagen ? ` in de laatste ${dagen} dagen` : ''}.
             {!via && verdeling.length > 1 && (
               <span className="stil"> {verdeling.join(', ')}.</span>
@@ -134,7 +137,12 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
       </h1>
 
       <LiveRefresh seconden={20} />
-      <AdsSyncKnop />
+      {anoniem ? (
+        // Ook de klantnamen in de zijbalk horen niet op een screenshot.
+        <style>{'.railklanten, .railvoet { display: none; }'}</style>
+      ) : (
+        <AdsSyncKnop />
+      )}
 
       <p className="periode strak">
         <a href={link({ status: '' })} aria-current={!gekozen ? 'true' : undefined}>alles</a>
@@ -196,64 +204,90 @@ export default async function Leads({ searchParams }: { searchParams: Promise<SP
         </div>
       ) : (
         <div className="tabelrol">
-          <table>
-            <thead>
-              <tr>
-                <th>Binnengekomen</th>
-                <th>Wie</th>
-                <th>Waarvoor</th>
-                <th>Klant</th>
-                <th>Kwam via</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rijen.map((l) => (
-                <tr key={l.id as string}>
-                  <td>
-                    <span className="hoofd">{tijdstip(l.created_at as string)}</span>
-                    <span className="onder">nr {l.public_ref as number}</span>
-                  </td>
-                  <td>
-                    <a href={`/leads/${l.id}`}>
-                      {(l.name as string) || 'naam onbekend'}
-                    </a>
-                    {l.needs_review ? (
-                      <span className="onder">
-                        <span className="merkje aandacht">controleren</span>
-                      </span>
-                    ) : (
-                      <span className="onder">{(l.email as string) || ''}</span>
-                    )}
-                  </td>
-                  <td>
-                    {l.subject ? (
-                      <span className="hoofd">{l.subject as string}</span>
-                    ) : (
-                      <span className="leegwaarde">—</span>
-                    )}
-                    {l.city && <span className="onder">{l.city as string}</span>}
-                  </td>
-                  <td>
-                    {klantNaam.get(l.client_id as string) ?? '—'}
-                    <span className="onder">{siteNaam.get(l.website_id as string) ?? ''}</span>
-                  </td>
-                  <td>
-                    <span className="hoofd">
+          {anoniem ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Binnengekomen</th>
+                  <th>Waarvoor</th>
+                  <th>Kwam via</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rijen.map((l) => (
+                  <tr key={l.id as string}>
+                    <td>{datum(l.created_at as string)}</td>
+                    <td style={{ fontWeight: 600, color: '#fff' }}>
+                      {(l.subject as string) || '—'}
+                    </td>
+                    <td>
                       {adsPlatform(l.source as string, l.medium as string) && <span className="stip pauze" />}
                       {herkomstNaam(l.source as string, l.medium as string)}
-                    </span>
-                    {(l.campaign || l.keyword) && (
-                      <span className="onder">
-                        {[l.campaign, l.keyword].filter(Boolean).join(' · ')}
-                      </span>
-                    )}
-                  </td>
-                  <td>{STATUS.find((x) => x.code === l.status)?.naam ?? (l.status as string)}</td>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Binnengekomen</th>
+                  <th>Wie</th>
+                  <th>Waarvoor</th>
+                  <th>Klant</th>
+                  <th>Kwam via</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rijen.map((l) => (
+                  <tr key={l.id as string}>
+                    <td>
+                      <span className="hoofd">{tijdstip(l.created_at as string)}</span>
+                      <span className="onder">nr {l.public_ref as number}</span>
+                    </td>
+                    <td>
+                      <a href={`/leads/${l.id}`}>
+                        {(l.name as string) || 'naam onbekend'}
+                      </a>
+                      {l.needs_review ? (
+                        <span className="onder">
+                          <span className="merkje aandacht">controleren</span>
+                        </span>
+                      ) : (
+                        <span className="onder">{(l.email as string) || ''}</span>
+                      )}
+                    </td>
+                    <td>
+                      {l.subject ? (
+                        <span className="hoofd">{l.subject as string}</span>
+                      ) : (
+                        <span className="leegwaarde">—</span>
+                      )}
+                      {l.city && <span className="onder">{l.city as string}</span>}
+                    </td>
+                    <td>
+                      {klantNaam.get(l.client_id as string) ?? '—'}
+                      <span className="onder">{siteNaam.get(l.website_id as string) ?? ''}</span>
+                    </td>
+                    <td>
+                      <span className="hoofd">
+                        {adsPlatform(l.source as string, l.medium as string) && <span className="stip pauze" />}
+                        {herkomstNaam(l.source as string, l.medium as string)}
+                      </span>
+                      {(l.campaign || l.keyword) && (
+                        <span className="onder">
+                          {[l.campaign, l.keyword].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                    </td>
+                    <td>{STATUS.find((x) => x.code === l.status)?.naam ?? (l.status as string)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </>

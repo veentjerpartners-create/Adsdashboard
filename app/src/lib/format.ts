@@ -39,3 +39,16 @@ export const klok = (iso: string | null | undefined) =>
 
 /** Deelt veilig: geeft null in plaats van Infinity of NaN. */
 export const deel = (a: number, b: number) => (b ? a / b : null);
+
+/** Hoe de lead binnenkwam, in gewone taal. */
+export function soort(leadType: string): string {
+  switch (leadType) {
+    case 'form': return 'Formulier op de website';
+    case 'phone': return 'Telefoongesprek';
+    case 'whatsapp': return 'WhatsApp-gesprek';
+    case 'email': return 'E-mail';
+    case 'manual': return 'Handmatig ingevoerd';
+    case 'import': return 'Geïmporteerd';
+    default: return leadType;
+  }
+}

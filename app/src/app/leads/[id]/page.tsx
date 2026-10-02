@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { config, db } from '@/lib/db';
-import { datum, klok, tijdstip } from '@/lib/format';
+import { datum, klok, soort, tijdstip } from '@/lib/format';
 import { Setup } from '@/components/Setup';
 import { koppelBezoeker, ontkoppelBezoeker } from './acties';
 
@@ -417,19 +417,6 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
       </div>
     </>
   );
-}
-
-/** Hoe de lead binnenkwam, in gewone taal. */
-function soort(leadType: string): string {
-  switch (leadType) {
-    case 'form': return 'Formulier op de website';
-    case 'phone': return 'Telefoongesprek';
-    case 'whatsapp': return 'WhatsApp-gesprek';
-    case 'email': return 'E-mail';
-    case 'manual': return 'Handmatig ingevoerd';
-    case 'import': return 'Geïmporteerd';
-    default: return leadType;
-  }
 }
 
 /** De matchmethode in gewone taal. */
