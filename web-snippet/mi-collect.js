@@ -36,6 +36,11 @@
 
   /* ===== INVULLEN PER SITE ===== */
   var KEY = 'VUL-COLLECTOR-KEY-IN';   // uit mi.website.collector_key
+  // true op een site die belooft niets op te slaan zonder toestemming (AZD).
+  // Er wordt dan nog steeds geteld -- ook een WhatsApp-klik -- maar zonder
+  // cookie of localStorage, dus zonder bezoeker over pagina's heen te volgen.
+  // Pas na "toestaan" krijgt de bezoeker een vast nummer.
+  var OPSLAG_NA_TOESTEMMING = false;
   /* ============================= */
 
   var ENDPOINT = '/api/collect';   // api/collect.mjs op Vercel
@@ -47,10 +52,17 @@
   var SESSIE_MINUTEN = 30;
   var CLICK_TTL = 90 * 24 * 60 * 60 * 1000;   // zelfde 90 dagen als Google
 
-  /* ---------- opslag die nooit mag klappen ---------- */
+  /* ---------- opslag die nooit mag klappen ----------
+   * Schrijven alleen als het mag (zie OPSLAG_NA_TOESTEMMING). Lezen altijd:
+   * wat er al staat, heeft de bezoeker eerder zelf toegestaan. De
+   * intern-markering is van de bouwer zelf en telt niet als bezoeker. */
+  // consent() staat lager in het bestand, maar is een function-declaratie en
+  // dus hier al aan te roepen.
+  var MAG = !OPSLAG_NA_TOESTEMMING || consent() === 'accepted';
   function ls(k, v) {
     try {
       if (v === undefined) return localStorage.getItem(k);
+      if (!MAG && k !== INTERN_KEY) return v;
       localStorage.setItem(k, v);
       return v;
     } catch (e) { return null; }
@@ -58,6 +70,7 @@
   function ss(k, v) {
     try {
       if (v === undefined) return sessionStorage.getItem(k);
+      if (!MAG) return v;
       sessionStorage.setItem(k, v);
       return v;
     } catch (e) { return null; }
@@ -119,13 +132,17 @@
     if (v) return v;
     // Cookie als vangnet: localStorage overleeft niet elke privacy-instelling.
     v = cookie(VID_KEY) || uuid();
+    bewaarVid(v);
+    return v;
+  }
+  function bewaarVid(v) {
+    if (!MAG) return;
     ls(VID_KEY, v);
     try {
       document.cookie = 'mi_vid=' + encodeURIComponent(v) +
         ';path=/;max-age=' + (180 * 24 * 3600) + ';SameSite=Lax' +
         (location.protocol === 'https:' ? ';Secure' : '');
     } catch (e) {}
-    return v;
   }
 
   /* ---------- sessie: 30 minuten inactief, of een nieuwe advertentieklik ---- */
@@ -217,6 +234,8 @@
    * die bepaalt of een lead met gegevens naar Google Ads mag. */
   function consent() {
     try {
+      var a = localStorage.getItem('azd-toestemming');   // AZD: 'ja' / 'nee'
+      if (a) return a === 'ja' ? 'accepted' : 'denied';
       var c = localStorage.getItem('cookie-consent');
       if (c) return c === 'accepted' ? 'accepted' : 'denied';
       var r = localStorage.getItem('rbb_consent');
@@ -230,6 +249,17 @@
 
   var VID = visitorId();
   var SID = sessionId(nieuweKlik);
+
+  /* Toestemming gekregen na het laden (de bezoeker klikt op "toestaan")?
+   * Dan vanaf nu bewaren wat we tot nu toe alleen in het geheugen hadden. */
+  function toestemmingBijwerken() {
+    if (MAG || consent() !== 'accepted') return;
+    MAG = true;
+    bewaarVid(VID);
+    ss(SID_KEY, SID);
+    ss(SID_TS, String(Date.now()));
+    if (klik && klik.id) ls(CLICK_KEY, JSON.stringify(klik));
+  }
 
   /* ---------- ontdubbelen ----------
    * Twee keer hetzelfde event vanaf dezelfde plek binnen twee seconden telt
@@ -255,6 +285,13 @@
   function stuur(payload) {
     if (KEY.indexOf('VUL-') === 0) return;   // nog niet ingesteld: niets doen
     if (INTERN) return;                       // eigen bezoek: niet meten
+    toestemmingBijwerken();
+    if (!MAG) {
+      // Geen cookies terug van het endpoint, en de klik niet als cookie laten
+      // bewaren: dat zou precies de opslag zijn die hier niet mag.
+      payload.anon = true;
+      delete payload.klk;
+    }
     var body = JSON.stringify(payload);
     try {
       if (navigator.sendBeacon) {

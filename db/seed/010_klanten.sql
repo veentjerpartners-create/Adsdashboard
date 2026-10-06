@@ -63,6 +63,23 @@ ON CONFLICT (domain) DO UPDATE SET
   ga4_property_id    = EXCLUDED.ga4_property_id,
   formspree_endpoint = EXCLUDED.formspree_endpoint;
 
+-- Onderhoudsbedrijf AZD (2026-10-05): geen Google Ads, geen GA4. Alleen de
+-- collector, voor WhatsApp-, bel- en mailkliks; het formulier komt per mail.
+-- De sleutel staat vast omdat hij al in js/mi-collect.js van de site staat.
+INSERT INTO client (name, slug, status, currency, timezone)
+VALUES ('Onderhoudsbedrijf AZD', 'azd-onderhoudsbedrijf', 'active', 'EUR', 'Europe/Amsterdam')
+ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;
+
+INSERT INTO client_portal_settings (client_id, portal_enabled)
+SELECT id, false FROM client WHERE slug = 'azd-onderhoudsbedrijf'
+ON CONFLICT (client_id) DO NOTHING;
+
+INSERT INTO website (client_id, domain, label, formspree_endpoint, collector_key)
+SELECT c.id, 'onderhoudsbedrijf-azd.nl', 'Onderhoudsbedrijf AZD', 'xqpaelpd',
+       'a77bd89712494375bb0080c023271793'
+FROM client c WHERE c.slug = 'azd-onderhoudsbedrijf'
+ON CONFLICT (domain) DO UPDATE SET formspree_endpoint = EXCLUDED.formspree_endpoint;
+
 -- ---------- Google Ads-accounts -----------------------------------------
 -- De sync vult naam, valuta, tijdzone en status bij; hier leggen we alleen
 -- vast welk account bij welke klant hoort. Dat blijft een bewuste keuze.

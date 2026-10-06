@@ -162,8 +162,10 @@ export default async function handler(req, res) {
 
   // De bewaarde klik is voor het cookie, niet voor de database: die krijgt
   // dezelfde informatie al via utm en cid.
-  const cookies = cookiesVoor(body);
+  // anon: de site mag (nog) niets opslaan, dus ook geen cookies terug.
+  const cookies = body.anon ? [] : cookiesVoor(body);
   delete body.klk;
+  delete body.anon;
 
   if (looksLikeBot(req.headers['user-agent'])) {
     body.meta = Object.assign({}, body.meta, { bot: true });
