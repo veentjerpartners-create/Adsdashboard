@@ -217,8 +217,9 @@ async function uploadBatch(token: string, customerId: string, rijen: WachtRij[],
       eventTimestamp: r.conversion_datetime.replace(' ', 'T'),
       eventSource: 'WEB',
       adIdentifiers: { [r.click_type]: r.click_id },
+      // De API kent alleen CONSENT_GRANTED / CONSENT_DENIED; kale 'GRANTED' geeft een 400.
       ...(r.consent_ad_user_data === 'GRANTED' || r.consent_ad_user_data === 'DENIED'
-        ? { consent: { adUserData: r.consent_ad_user_data, adPersonalization: r.consent_ad_user_data } }
+        ? { consent: { adUserData: `CONSENT_${r.consent_ad_user_data}`, adPersonalization: `CONSENT_${r.consent_ad_user_data}` } }
         : {}),
     })),
     validateOnly,
