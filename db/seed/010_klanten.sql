@@ -116,3 +116,13 @@ FROM client c
 LEFT JOIN website     w ON w.client_id = c.id
 LEFT JOIN ads_account a ON a.client_id = c.id
 ORDER BY c.name;
+
+-- ---------- Venix Kozijnen (25-10-2026) ----------------------------------
+-- Handelsnaam van Boers & Breuer: zelfde klant en zelfde Ads-account
+-- (5442825521, AW-18441189967). Campagnes 'Venix | Search | ...'.
+-- Snippet staat met OPSLAG_NA_TOESTEMMING = true (cookiemelding 'vx-cookies').
+INSERT INTO website (client_id, domain, label, ads_conversion_id, formspree_endpoint, collector_key, timezone)
+SELECT c.id, 'venixkozijnen.nl', 'Venix Kozijnen', 'AW-18441189967', 'mppqygdp',
+       replace(gen_random_uuid()::text, '-', ''), 'Europe/Amsterdam'
+FROM client c WHERE c.slug = 'boers-breuer'
+ON CONFLICT (domain) DO NOTHING;
