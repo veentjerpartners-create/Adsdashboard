@@ -35,7 +35,17 @@
  * cookie dat de server zet via Set-Cookie laat Safari staan. Daarom zet dit
  * endpoint de twee cookies opnieuw bij elk event: dezelfde waarde, maar nu
  * met een houdbaarheid die op een iPhone ook echt geldt.
+ *
+ * ZONDER TOESTEMMING (anon)
+ * Dan bewaart het snippet niets, en krijgt elke pagina een nieuw willekeurig
+ * bezoeker- en sessienummer. Gevolg: wie via ChatGPT binnenkomt en twee keer
+ * doorklikt, stond erin als drie bezoekers, twee daarvan "direct". Daarom
+ * maakt dit endpoint de nummers dan zelf, cookieloos: een hash van IP en
+ * user-agent met een geheim dat elke dag wisselt (zoals Plausible). Op het
+ * apparaat wordt niets opgeslagen, het IP zelf nergens, en morgen is dezelfde
+ * bezoeker onherkenbaar. Eén anonieme bezoeker = één sessie per dag.
  */
+import { createHash } from 'node:crypto';
 
 const SUPABASE_URL = process.env.MI_SUPABASE_URL;
 const SUPABASE_KEY = process.env.MI_SUPABASE_KEY;
@@ -109,6 +119,16 @@ function looksLikeBot(ua) {
     .test(ua || '');
 }
 
+/** Een UUID uit een hash: zelfde invoer, zelfde nummer, de hele dag. */
+function hashUuid(...delen) {
+  const h = createHash('sha256').update(delen.join('|')).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+function host(url) {
+  try { return new URL(url).host.replace(/^www\./, ''); } catch { return ''; }
+}
+
 function originOk(req) {
   if (!ALLOWED_ORIGIN) return true;              // niet ingesteld = niet afdwingen
   const origin = req.headers.origin || '';
@@ -164,6 +184,19 @@ export default async function handler(req, res) {
   // dezelfde informatie al via utm en cid.
   // anon: de site mag (nog) niets opslaan, dus ook geen cookies terug.
   const cookies = body.anon ? [] : cookiesVoor(body);
+  if (body.anon) {
+    const dag = new Date().toISOString().slice(0, 10);
+    const ua = req.headers['user-agent'] || '';
+    body.vid = hashUuid(SUPABASE_KEY, COLLECTOR_KEY, dag, ip, ua, 'vid');
+    body.sid = hashUuid(SUPABASE_KEY, COLLECTOR_KEY, dag, ip, ua, 'sid');
+    // Het snippet kan zonder opslag niet onthouden dat de sessie al gemeld is,
+    // en stuurt bij elke pagina een session_start. Bij doorklikken binnen de
+    // site is dat geen nieuwe sessie.
+    const eigen = host(body.url);
+    if (body.t === 'session_start' && eigen && host(body.ref) === eigen) {
+      return res.status(204).end();
+    }
+  }
   delete body.klk;
   delete body.anon;
 
