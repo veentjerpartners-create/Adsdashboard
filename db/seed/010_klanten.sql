@@ -152,3 +152,30 @@ INSERT INTO ads_account (customer_id, descriptive_name, currency_code, time_zone
 SELECT '9146118684', 'Gimeven', 'EUR', 'Europe/Amsterdam', false, '9287874539', c.id
 FROM client c WHERE c.slug = 'gimeven'
 ON CONFLICT (customer_id) DO UPDATE SET client_id = EXCLUDED.client_id;
+
+-- ---------- YAST Digital (28-10-2026) ------------------------------------
+-- Eigen bureau, Mexico (yastdigital.com, Next.js op Vercel). Ads-account
+-- 358-589-9996 rekent in EUR (zo aangemaakt), campagne exact op websitebouw MX.
+-- Conversietag AW-18542242372 (formulier, WhatsApp-klik, telefoonklik).
+-- Snippet met OPSLAG_NA_TOESTEMMING = true (cookiemelding 'yast-cookies', LFPDPPP).
+-- Formspree-endpoint gedeeld met Gimeven (xwvglpgr); _subject "YAST · ..." onderscheidt.
+-- De sleutel staat vast omdat hij al in public/js/mi-collect.js van de site staat.
+INSERT INTO client (name, slug, status, currency, timezone)
+VALUES ('YAST Digital', 'yast', 'active', 'EUR', 'America/Mexico_City')
+ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;
+
+INSERT INTO client_portal_settings (client_id, portal_enabled)
+SELECT id, false FROM client WHERE slug = 'yast'
+ON CONFLICT (client_id) DO NOTHING;
+
+INSERT INTO website (client_id, domain, label, ads_conversion_id, formspree_endpoint, collector_key, timezone)
+SELECT c.id, 'yastdigital.com', 'YAST Digital', 'AW-18542242372', 'xwvglpgr',
+       '731baae0f13c06e0aef04ac0f7e63c66', 'America/Mexico_City'
+FROM client c WHERE c.slug = 'yast'
+ON CONFLICT (domain) DO NOTHING;
+
+INSERT INTO ads_account (customer_id, descriptive_name, currency_code, time_zone,
+                         is_manager, manager_customer_id, client_id)
+SELECT '3585899996', 'YAST Digital', 'EUR', 'Europe/Amsterdam', false, '9287874539', c.id
+FROM client c WHERE c.slug = 'yast'
+ON CONFLICT (customer_id) DO UPDATE SET client_id = EXCLUDED.client_id;
