@@ -126,3 +126,29 @@ SELECT c.id, 'venixkozijnen.nl', 'Venix Kozijnen', 'AW-18441189967', 'mppqygdp',
        replace(gen_random_uuid()::text, '-', ''), 'Europe/Amsterdam'
 FROM client c WHERE c.slug = 'boers-breuer'
 ON CONFLICT (domain) DO NOTHING;
+
+-- ---------- Gimeven (28-10-2026) -----------------------------------------
+-- Eigen bureau (gimeven.com.br, Next.js op Vercel). Ads-account 914-611-8684
+-- rekent in EUR (zo aangemaakt), campagnes richten op SP + SC in Brazilie.
+-- Conversietag AW-18542076365 (formulier, WhatsApp-klik, telefoonklik).
+-- Snippet met OPSLAG_NA_TOESTEMMING = true (cookiemelding 'gv-cookies', LGPD).
+-- De sleutel staat vast omdat hij al in public/js/mi-collect.js van de site staat.
+INSERT INTO client (name, slug, status, currency, timezone)
+VALUES ('Gimeven', 'gimeven', 'active', 'EUR', 'America/Sao_Paulo')
+ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;
+
+INSERT INTO client_portal_settings (client_id, portal_enabled)
+SELECT id, false FROM client WHERE slug = 'gimeven'
+ON CONFLICT (client_id) DO NOTHING;
+
+INSERT INTO website (client_id, domain, label, ads_conversion_id, formspree_endpoint, collector_key, timezone)
+SELECT c.id, 'gimeven.com.br', 'Gimeven', 'AW-18542076365', 'xwvglpgr',
+       '32cd429f40a047da97470fd9a72a3974', 'America/Sao_Paulo'
+FROM client c WHERE c.slug = 'gimeven'
+ON CONFLICT (domain) DO NOTHING;
+
+INSERT INTO ads_account (customer_id, descriptive_name, currency_code, time_zone,
+                         is_manager, manager_customer_id, client_id)
+SELECT '9146118684', 'Gimeven', 'EUR', 'Europe/Amsterdam', false, '9287874539', c.id
+FROM client c WHERE c.slug = 'gimeven'
+ON CONFLICT (customer_id) DO UPDATE SET client_id = EXCLUDED.client_id;

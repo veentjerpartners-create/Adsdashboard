@@ -234,6 +234,8 @@
    * die bepaalt of een lead met gegevens naar Google Ads mag. */
   function consent() {
     try {
+      var gv = localStorage.getItem('gv-cookies');        // Gimeven: 'sim' / 'nao'
+      if (gv) return gv === 'sim' ? 'accepted' : 'denied';
       var vx = localStorage.getItem('vx-cookies');        // Venix: 'ja' / 'nee'
       if (vx) return vx === 'ja' ? 'accepted' : 'denied';
       var a = localStorage.getItem('azd-toestemming');   // AZD: 'ja' / 'nee'
