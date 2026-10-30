@@ -93,8 +93,8 @@
     }
   }
 
-  function param(naam) {
-    var m = new RegExp('[?&]' + naam + '=([^&#]*)').exec(location.search);
+  function param(naam, zoek) {
+    var m = new RegExp('[?&]' + naam + '=([^&#]*)').exec(zoek == null ? location.search : zoek);
     return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
   }
 
@@ -164,38 +164,34 @@
    * terugkomt hoort nog steeds bij die advertentie.
    */
   var nieuweKlik = false;
-  var klik = (function () {
+  /** Advertentieklik of campagne uit een querystring, of null. */
+  function klikUit(zoek) {
     var soorten = ['gclid', 'wbraid', 'gbraid', 'msclkid', 'fbclid'];
-    for (var i = 0; i < soorten.length; i++) {
-      var v = param(soorten[i]);
-      if (v) {
-        nieuweKlik = true;
-        var vers = {
-          id: v, type: soorten[i], t: Date.now(),
-          src: param('utm_source'), med: param('utm_medium'),
-          cmp: param('utm_campaign'), term: param('utm_term'),
-          cnt: param('utm_content'),
-          // mi_cid/mi_agid zetten we zelf via de URL-suffix; gad_campaignid
-          // plakt Google er uit zichzelf aan. Allebei meenemen: een ID blijft
-          // kloppen als je een campagne hernoemt, een slug niet.
-          cid: param('mi_cid') || param('gad_campaignid'),
-          agid: param('mi_agid')
-        };
-        ls(CLICK_KEY, JSON.stringify(vers));
-        return vers;
-      }
+    var id = '', type = '';
+    for (var i = 0; i < soorten.length && !id; i++) {
+      id = param(soorten[i], zoek);
+      if (id) type = soorten[i];
     }
-    // Geen click-ID maar wel utm's? Dan is het een gewone campagne.
-    if (param('utm_source')) {
+    // Geen click-ID en geen utm's: geen klik.
+    if (!id && !param('utm_source', zoek)) return null;
+    return {
+      id: id, type: type, t: Date.now(),
+      src: param('utm_source', zoek), med: param('utm_medium', zoek),
+      cmp: param('utm_campaign', zoek), term: param('utm_term', zoek),
+      cnt: param('utm_content', zoek),
+      // mi_cid/mi_agid zetten we zelf via de URL-suffix; gad_campaignid
+      // plakt Google er uit zichzelf aan. Allebei meenemen: een ID blijft
+      // kloppen als je een campagne hernoemt, een slug niet.
+      cid: param('mi_cid', zoek) || param('gad_campaignid', zoek),
+      agid: param('mi_agid', zoek)
+    };
+  }
+  var klik = (function () {
+    var vers = klikUit();
+    if (vers) {
       nieuweKlik = true;
-      return {
-        id: '', type: '', t: Date.now(),
-        src: param('utm_source'), med: param('utm_medium'),
-        cmp: param('utm_campaign'), term: param('utm_term'),
-        cnt: param('utm_content'),
-        cid: param('mi_cid') || param('gad_campaignid'),
-        agid: param('mi_agid')
-      };
+      if (vers.id) ls(CLICK_KEY, JSON.stringify(vers));
+      return vers;
     }
     // Geen nieuwe klik: de bewaarde. Eerst localStorage, dan het cookie dat
     // ons endpoint server-side zet. Safari wist door scripts gezette opslag na
@@ -203,10 +199,26 @@
     // staan. Zo blijven de 90 dagen ook op een iPhone 90 dagen.
     try {
       var oud = JSON.parse(ls(CLICK_KEY) || cookie(CLICK_KEY) || 'null');
-      if (!oud || !oud.t || (Date.now() - oud.t) > CLICK_TTL) return null;
-      ls(CLICK_KEY, JSON.stringify(oud));   // terug in localStorage
-      return oud;
-    } catch (e) { return null; }
+      if (oud && oud.t && (Date.now() - oud.t) <= CLICK_TTL) {
+        ls(CLICK_KEY, JSON.stringify(oud));   // terug in localStorage
+        return oud;
+      }
+    } catch (e) {}
+    // Niets bewaard, maar de vorige pagina van deze site had de klik nog in
+    // zijn adres? Dan die. Gebeurt als er op de landingspagina nog niets
+    // bewaard mocht worden en de bezoeker daar toestemming gaf en meteen
+    // doorklikte: dan kreeg pagina twee een nieuw bezoekersnummer en telde
+    // hij als "direct" (Venix-lead #1073, Meta-advertentie, 30-10-2026).
+    // Geen nieuweKlik: doorklikken is geen nieuwe sessie.
+    try {
+      var ref = new URL(document.referrer);
+      if (ref.host === location.host) {
+        var vorige = klikUit(ref.search);
+        if (vorige && vorige.id) ls(CLICK_KEY, JSON.stringify(vorige));
+        return vorige;
+      }
+    } catch (e) {}
+    return null;
   })();
 
   /* ---------- GA4-brug ----------
