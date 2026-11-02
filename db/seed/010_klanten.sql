@@ -199,3 +199,23 @@ SELECT c.id, 'veentjeragency.com', 'Veentjer Agency', 'mvkpnvjy',
        '367906b524dd571ffb20445917b5c6ba', 'Europe/Amsterdam'
 FROM client c WHERE c.slug = 'veentjer'
 ON CONFLICT (domain) DO NOTHING;
+
+-- ---------- COP Bouwbedrijf (2-11-2026) ----------------------------------
+-- Installatiebedrijf utiliteitsbouw (copbouwbedrijf.nl, statische HTML op Vercel,
+-- NL + /en). Geen Google Ads, geen GA4, geen cookiemelding: snippet met
+-- OPSLAG_NA_TOESTEMMING = true, dus cookieloos tellen. Meet WhatsApp-, bel- en
+-- mailkliks en het contactformulier (na geslaagde Formspree-verzending).
+-- De sleutel staat vast omdat hij al in js/mi-collect.js van de site staat.
+INSERT INTO client (name, slug, status, currency, timezone)
+VALUES ('COP Bouwbedrijf', 'cop-bouwbedrijf', 'active', 'EUR', 'Europe/Amsterdam')
+ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;
+
+INSERT INTO client_portal_settings (client_id, portal_enabled)
+SELECT id, false FROM client WHERE slug = 'cop-bouwbedrijf'
+ON CONFLICT (client_id) DO NOTHING;
+
+INSERT INTO website (client_id, domain, label, formspree_endpoint, collector_key, timezone)
+SELECT c.id, 'copbouwbedrijf.nl', 'COP Bouwbedrijf', 'xnpnwvkv',
+       '3a8fd38c6b289b2734c228f93701ec04', 'Europe/Amsterdam'
+FROM client c WHERE c.slug = 'cop-bouwbedrijf'
+ON CONFLICT (domain) DO NOTHING;
