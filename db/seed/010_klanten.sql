@@ -179,3 +179,23 @@ INSERT INTO ads_account (customer_id, descriptive_name, currency_code, time_zone
 SELECT '3585899996', 'YAST Digital', 'EUR', 'Europe/Amsterdam', false, '9287874539', c.id
 FROM client c WHERE c.slug = 'yast'
 ON CONFLICT (customer_id) DO UPDATE SET client_id = EXCLUDED.client_id;
+
+-- ---------- Veentjer Agency (2-11-2026) ----------------------------------
+-- Eigen bureau NL (veentjeragency.com, Next.js App Router op Vercel). Collector via
+-- app/api/collect/route.js + lib/mi-collect-handler.js; snippet met
+-- OPSLAG_NA_TOESTEMMING = true (cookie 'veentjer_consent' {analytics, marketing}).
+-- Formspree mvkpnvjy. Alleen MI_SUPABASE_KEY hoeft in Vercel; URL, sleutel en
+-- origin staan als standaardwaarde in de handler.
+INSERT INTO client (name, slug, status, currency, timezone)
+VALUES ('Veentjer Agency', 'veentjer', 'active', 'EUR', 'Europe/Amsterdam')
+ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name;
+
+INSERT INTO client_portal_settings (client_id, portal_enabled)
+SELECT id, false FROM client WHERE slug = 'veentjer'
+ON CONFLICT (client_id) DO NOTHING;
+
+INSERT INTO website (client_id, domain, label, formspree_endpoint, collector_key, timezone)
+SELECT c.id, 'veentjeragency.com', 'Veentjer Agency', 'mvkpnvjy',
+       '367906b524dd571ffb20445917b5c6ba', 'Europe/Amsterdam'
+FROM client c WHERE c.slug = 'veentjer'
+ON CONFLICT (domain) DO NOTHING;
