@@ -20,7 +20,7 @@ export type Klant = {
 export type Scope = {
   klanten: Klant[];
   actief: Klant | null;
-  /** De ads_account-ids binnen de scope; leeg betekent geen beperking. */
+  /** De ads_account-ids binnen de scope; leeg betekent geen Ads-cijfers. */
   accountIds: string[];
   /** Per ads_account-id het platform: 'google' of 'microsoft'. */
   platformVanAccount: Record<string, 'google' | 'microsoft'>;

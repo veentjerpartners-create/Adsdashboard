@@ -106,11 +106,9 @@ export default async function Zoektermen({ searchParams }: { searchParams: Promi
     );
   }
 
-  const mq = (van: number, tot: number) => {
-    let q = s.from('v_campaign_daily').select('cost').gte('date', start).lte('date', eind);
-    if (sc.accountIds.length) q = q.in('ads_account_id', sc.accountIds);
-    return q.range(van, tot);
-  };
+  const mq = (van: number, tot: number) =>
+    s.from('v_campaign_daily').select('cost').gte('date', start).lte('date', eind)
+      .in('ads_account_id', sc.accountIds).range(van, tot);
   const [rijen, metrics] = await Promise.all([zoektermen(sc, start, eind), allesOphalen(mq)]);
   const totaalSpend = metrics.reduce((a, r) => a + Number(r.cost ?? 0), 0);
   const termSpend = rijen.reduce((a, r) => a + (r.term ? r.kosten : 0), 0);

@@ -39,9 +39,9 @@ export async function Overzicht({
     .select('id,client_id,source,medium,event_type')
     .in('event_type', ['whatsapp_click', 'phone_click', 'email_click'])
     .gte('occurred_at', `${start}T00:00:00Z`);
-  if (accounts.length) {
-    mq = mq.in('ads_account_id', accounts);
-  }
+  // Ook bij een lege lijst filteren: een klant zonder Ads-account heeft geen
+  // Ads-cijfers, niet die van alle andere klanten.
+  mq = mq.in('ads_account_id', accounts);
   if (scope.actief) {
     lq = lq.eq('client_id', scope.actief.id);
     sq = sq.eq('client_id', scope.actief.id);
@@ -110,7 +110,7 @@ export async function Overzicht({
   }
   for (const c of campagnes.data ?? []) {
     if (c.status === 'REMOVED') continue;
-    if (accounts.length && !accounts.includes(c.ads_account_id as string)) continue;
+    if (!accounts.includes(c.ads_account_id as string)) continue;
     pak(`${c.ads_account_id}-${c.campaign_id}`, c.ads_account_id as string, c.campaign_id as number);
   }
   const campagneRijen = [...perCampagne.values()]
